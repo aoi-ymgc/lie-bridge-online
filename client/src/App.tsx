@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Socket } from "socket.io-client";
 import type {
   DeclaredNumber,
@@ -10,6 +10,21 @@ import type {
 
 type Props = {
   socket: Socket;
+};
+
+type DiceOverlayState = {
+  key: number;
+  mode: "private" | "reveal" | "victory";
+  dice?: DiceResult;
+  title: string;
+  detail: string;
+  verdict?: "truth" | "lie" | "skip";
+};
+
+type ActionBannerState = {
+  key: number;
+  text: string;
+  kind: "move" | "goal" | "fall";
 };
 
 const colorLabels: Record<PublicPlayer["color"], string> = {
@@ -40,6 +55,12 @@ function App({ socket }: Props) {
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [showRules, setShowRules] = useState(false);
+  const [diceOverlay, setDiceOverlay] = useState<DiceOverlayState | null>(null);
+  const [actionBanner, setActionBanner] = useState<ActionBannerState | null>(null);
+  const [motionPieceIds, setMotionPieceIds] = useState<Set<string>>(new Set());
+  const previousPiecesRef = useRef<Map<string, string>>(new Map());
+  const lastLogRef = useRef("");
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 250);
@@ -50,18 +71,39 @@ function App({ socket }: Props) {
     socket.on("roomUpdated", ({ room: nextRoom }: { room: PublicRoomState }) => {
       setRoom(nextRoom);
       setRoomId(nextRoom.id);
+      if (nextRoom.revealedDiceResult) {
+        setRevealedDice(nextRoom.revealedDiceResult);
+      }
       if (nextRoom.phase === "rolling" || nextRoom.status === "lobby" || nextRoom.status === "finished") {
         setPrivateDice(null);
+        if (!nextRoom.revealedDiceResult) {
+          setRevealedDice(null);
+        }
       }
-      if (nextRoom.phase !== "resolving") {
+      if (nextRoom.phase !== "resolving" && !nextRoom.revealedDiceResult) {
         setRevealedDice(null);
       }
     });
     socket.on("privateDiceResult", ({ diceResult }: { diceResult: DiceResult }) => {
       setPrivateDice(diceResult);
+      setDiceOverlay({
+        key: Date.now(),
+        mode: "private",
+        dice: diceResult,
+        title: "あなたの出目",
+        detail: "この出目は自分だけに見えています"
+      });
     });
     socket.on("diceRevealed", ({ diceResult }: { diceResult: DiceResult }) => {
       setRevealedDice(diceResult);
+    });
+    socket.on("gameFinished", ({ resultText }: { winnerId: string | null; resultText: string }) => {
+      setDiceOverlay({
+        key: Date.now(),
+        mode: "victory",
+        title: "勝負あり",
+        detail: resultText
+      });
     });
     socket.on("connect_error", () => setError("サーバーに接続できません"));
 
@@ -69,13 +111,80 @@ function App({ socket }: Props) {
       socket.off("roomUpdated");
       socket.off("privateDiceResult");
       socket.off("diceRevealed");
+      socket.off("gameFinished");
       socket.off("connect_error");
     };
   }, [socket]);
 
+  useEffect(() => {
+    if (!privateDice) return;
+    const timer = window.setTimeout(() => {
+      setDiceOverlay((current) => (current?.mode === "private" ? null : current));
+    }, 1900);
+    return () => window.clearTimeout(timer);
+  }, [privateDice]);
+
+  useEffect(() => {
+    if (!room?.revealedDiceResult || !room.resolutionText) return;
+    setDiceOverlay({
+      key: Date.now(),
+      mode: "reveal",
+      dice: room.revealedDiceResult,
+      title: "答え合わせ",
+      detail: room.resolutionText,
+      verdict: room.resolutionKind ?? undefined
+    });
+    const timer = window.setTimeout(() => {
+      setDiceOverlay((current) => (current?.mode === "reveal" ? null : current));
+    }, 4200);
+    return () => window.clearTimeout(timer);
+  }, [room?.revealedDiceResult, room?.resolutionText, room?.resolutionKind]);
+
+  useEffect(() => {
+    if (!room) return;
+    const nextMap = new Map<string, string>();
+    const changed = new Set<string>();
+    room.players.forEach((player) => {
+      player.pieces.forEach((piece) => {
+        const signature = `${piece.position}:${piece.status}:${piece.goalOrder ?? ""}`;
+        nextMap.set(piece.id, signature);
+        if (previousPiecesRef.current.has(piece.id) && previousPiecesRef.current.get(piece.id) !== signature) {
+          changed.add(piece.id);
+        }
+      });
+    });
+    previousPiecesRef.current = nextMap;
+    if (changed.size) {
+      setMotionPieceIds(changed);
+      const timer = window.setTimeout(() => setMotionPieceIds(new Set()), 1000);
+      return () => window.clearTimeout(timer);
+    }
+  }, [room]);
+
+  useEffect(() => {
+    const latest = room?.logs.at(-1);
+    if (!latest || latest === lastLogRef.current) return;
+    lastLogRef.current = latest;
+    const kind = latest.includes("ゴール")
+      ? "goal"
+      : latest.includes("落ち")
+        ? "fall"
+        : latest.includes("進み")
+          ? "move"
+          : null;
+    if (!kind) return;
+    setActionBanner({ key: Date.now(), text: latest, kind });
+    const timer = window.setTimeout(() => setActionBanner(null), 1800);
+    return () => window.clearTimeout(timer);
+  }, [room?.logs]);
+
   const me = useMemo(() => room?.players.find((player) => player.id === playerId) ?? null, [room, playerId]);
   const currentTurnPlayer = useMemo(
     () => room?.players.find((player) => player.id === room.currentTurnPlayerId) ?? null,
+    [room]
+  );
+  const currentChallengePlayer = useMemo(
+    () => room?.players.find((player) => player.id === room.currentChallengePlayerId) ?? null,
     [room]
   );
   const inviteUrl = room ? `${window.location.origin}${window.location.pathname}?room=${room.id}` : "";
@@ -83,11 +192,13 @@ function App({ socket }: Props) {
   const myActivePiece = me?.pieces.find((piece) => piece.status === "active") ?? null;
   const canChallenge = Boolean(
     room?.phase === "challengeWindow" &&
+      room.currentChallengePlayerId === playerId &&
       !isMyTurn &&
       !room.challengerId &&
       myActivePiece &&
       !me?.isEliminated
   );
+  const canSkipChallenge = Boolean(room?.phase === "challengeWindow" && room.currentChallengePlayerId === playerId);
   const secondsLeft = room?.challengeEndsAt
     ? Math.max(0, Math.ceil((room.challengeEndsAt - now) / 1000))
     : room?.declareEndsAt
@@ -143,6 +254,21 @@ function App({ socket }: Props) {
     emitWithAck(event, { roomId, ...payload });
   };
 
+  const leaveToTitle = () => {
+    if (!roomId) {
+      setRoom(null);
+      return;
+    }
+    emitWithAck("leaveRoom", { roomId }, () => {
+      setRoom(null);
+      setRoomId("");
+      setPlayerId("");
+      setPrivateDice(null);
+      setRevealedDice(null);
+      window.history.replaceState({}, "", window.location.pathname);
+    });
+  };
+
   if (!room) {
     return (
       <main className="shell start-shell">
@@ -150,6 +276,9 @@ function App({ socket }: Props) {
           <div className="sky-mark">Lie Bridge Online</div>
           <h1>雲の一本橋で、ほんの少しだけ大胆に。</h1>
           <p>特殊ダイスの出目を隠して宣言し、ウソを見抜きながら3つのコマをゴールへ運ぶ対戦ブラフゲーム。</p>
+          <button className="ghost" onClick={() => setShowRules(true)}>
+            ルールを見る
+          </button>
         </section>
 
         <section className="entry-panel">
@@ -180,6 +309,7 @@ function App({ socket }: Props) {
           </div>
           {error && <p className="error">{error}</p>}
         </section>
+        {showRules && <RulesModal onClose={() => setShowRules(false)} />}
       </main>
     );
   }
@@ -191,13 +321,16 @@ function App({ socket }: Props) {
           <div className="room-code">ROOM {room.id}</div>
           <h1>Lie Bridge Online</h1>
         </div>
-        <div className="turn-chip">
-          {room.status === "lobby"
-            ? "ロビー"
-            : room.status === "finished"
-              ? "ゲーム終了"
-              : `${currentTurnPlayer?.name ?? "?"} の手番`}
-          {secondsLeft !== null && room.status === "playing" && <span>{secondsLeft}s</span>}
+        <div className="top-actions">
+          <button className="ghost" onClick={() => setShowRules(true)}>
+            ルール
+          </button>
+          <TurnTimer
+            room={room}
+            secondsLeft={secondsLeft}
+            currentTurnPlayer={currentTurnPlayer}
+            currentChallengePlayer={currentChallengePlayer}
+          />
         </div>
       </header>
 
@@ -209,6 +342,7 @@ function App({ socket }: Props) {
           copied={copied}
           copyInvite={copyInvite}
           startGame={() => action("startGame")}
+          leaveToTitle={leaveToTitle}
           error={error}
         />
       ) : (
@@ -220,15 +354,18 @@ function App({ socket }: Props) {
               revealedDice={revealedDice}
               isMyTurn={isMyTurn}
               currentTurnPlayer={currentTurnPlayer}
+              currentChallengePlayer={currentChallengePlayer}
             />
-            <Bridge room={room} />
+            <Bridge room={room} motionPieceIds={motionPieceIds} />
             <Controls
               room={room}
               isMyTurn={isMyTurn}
               canChallenge={canChallenge}
+              canSkipChallenge={canSkipChallenge}
               rollDice={() => action("rollDice")}
               declareNumber={(declaredNumber) => action("declareNumber", { declaredNumber })}
               challenge={() => action("challenge")}
+              skipChallenge={() => action("skipChallenge")}
               rematch={() => action("rematch")}
               backToLobby={() => action("backToLobby")}
               isHost={Boolean(me?.isHost)}
@@ -242,6 +379,9 @@ function App({ socket }: Props) {
         </div>
       )}
 
+      {diceOverlay && <DiceOverlay state={diceOverlay} />}
+      {actionBanner && <ActionBanner banner={actionBanner} />}
+      {showRules && <RulesModal onClose={() => setShowRules(false)} />}
       {error && <div className="toast">{error}</div>}
     </main>
   );
@@ -254,6 +394,7 @@ function Lobby({
   copied,
   copyInvite,
   startGame,
+  leaveToTitle,
   error
 }: {
   room: PublicRoomState;
@@ -262,6 +403,7 @@ function Lobby({
   copied: boolean;
   copyInvite: () => void;
   startGame: () => void;
+  leaveToTitle: () => void;
   error: string;
 }) {
   return (
@@ -274,13 +416,46 @@ function Lobby({
 
       <PlayerList room={room} playerId={me?.id ?? ""} />
 
-      <button className="primary wide" disabled={!me?.isHost || room.players.length < 2} onClick={startGame}>
-        ゲーム開始
-      </button>
+      <div className="lobby-actions">
+        <button onClick={leaveToTitle}>最初の画面に戻る</button>
+        <button className="primary" disabled={!me?.isHost || room.players.length < 2} onClick={startGame}>
+          ゲーム開始
+        </button>
+      </div>
       {!me?.isHost && <p className="hint">ホストがゲームを開始します。</p>}
       {room.players.length < 2 && <p className="hint">開始には2人以上必要です。</p>}
       {error && <p className="error">{error}</p>}
     </section>
+  );
+}
+
+function TurnTimer({
+  room,
+  secondsLeft,
+  currentTurnPlayer,
+  currentChallengePlayer
+}: {
+  room: PublicRoomState;
+  secondsLeft: number | null;
+  currentTurnPlayer: PublicPlayer | null;
+  currentChallengePlayer: PublicPlayer | null;
+}) {
+  const title =
+    room.status === "lobby"
+      ? "ロビー"
+      : room.status === "finished"
+        ? "ゲーム終了"
+        : room.phase === "challengeWindow"
+          ? `${currentChallengePlayer?.name ?? "?"} が選ぶ番`
+          : `${currentTurnPlayer?.name ?? "?"} の手番`;
+  const label = room.phase === "challengeWindow" ? "指摘判断" : room.phase === "declaring" ? "宣言時間" : "現在";
+
+  return (
+    <div className={`turn-timer ${secondsLeft !== null && secondsLeft <= 5 ? "urgent" : ""}`}>
+      <span>{label}</span>
+      <strong>{title}</strong>
+      {secondsLeft !== null && room.status === "playing" && <b>{secondsLeft}</b>}
+    </div>
   );
 }
 
@@ -289,13 +464,15 @@ function StatusStrip({
   privateDice,
   revealedDice,
   isMyTurn,
-  currentTurnPlayer
+  currentTurnPlayer,
+  currentChallengePlayer
 }: {
   room: PublicRoomState;
   privateDice: DiceResult | null;
   revealedDice: DiceResult | null;
   isMyTurn: boolean;
   currentTurnPlayer: PublicPlayer | null;
+  currentChallengePlayer: PublicPlayer | null;
 }) {
   return (
     <section className="status-strip">
@@ -308,18 +485,22 @@ function StatusStrip({
         <strong>{phaseText(room.phase, room.status)}</strong>
       </div>
       <div>
-        <span className="label">宣言</span>
-        <strong>{room.currentDeclaredNumber ? `${room.currentDeclaredNumber}` : "-"}</strong>
+        <span className="label">指摘判断</span>
+        <strong>{currentChallengePlayer?.name ?? "-"}</strong>
       </div>
       <div>
         <span className="label">{revealedDice ? "公開出目" : isMyTurn ? "自分の出目" : "出目"}</span>
         <strong>{revealedDice ?? privateDice ?? "非公開"}</strong>
       </div>
+      <div>
+        <span className="label">宣言</span>
+        <strong>{room.currentDeclaredNumber ? `${room.currentDeclaredNumber}` : "-"}</strong>
+      </div>
     </section>
   );
 }
 
-function Bridge({ room }: { room: PublicRoomState }) {
+function Bridge({ room, motionPieceIds }: { room: PublicRoomState; motionPieceIds: Set<string> }) {
   const cells = Array.from({ length: room.bridgeLength + 1 }, (_, index) => index);
 
   return (
@@ -336,7 +517,7 @@ function Bridge({ room }: { room: PublicRoomState }) {
                   .filter((piece) => piece.status === "active" && Math.min(piece.position, room.bridgeLength) === position)
                   .map((piece) => (
                     <span
-                      className="piece"
+                      className={`piece ${motionPieceIds.has(piece.id) ? "piece-moving" : ""}`}
                       key={piece.id}
                       title={`${player.name} のコマ`}
                       style={{ background: colorValues[player.color] }}
@@ -354,7 +535,7 @@ function Bridge({ room }: { room: PublicRoomState }) {
                 .filter((piece) => piece.status === "goal" || (piece.status === "active" && piece.position > room.bridgeLength))
                 .map((piece) => (
                   <span
-                    className="piece goal-piece"
+                    className={`piece goal-piece ${motionPieceIds.has(piece.id) ? "piece-goal-burst" : ""}`}
                     key={piece.id}
                     title={`${player.name} のゴール候補`}
                     style={{ background: colorValues[player.color] }}
@@ -372,9 +553,11 @@ function Controls({
   room,
   isMyTurn,
   canChallenge,
+  canSkipChallenge,
   rollDice,
   declareNumber,
   challenge,
+  skipChallenge,
   rematch,
   backToLobby,
   isHost
@@ -382,9 +565,11 @@ function Controls({
   room: PublicRoomState;
   isMyTurn: boolean;
   canChallenge: boolean;
+  canSkipChallenge: boolean;
   rollDice: () => void;
   declareNumber: (declaredNumber: DeclaredNumber) => void;
   challenge: () => void;
+  skipChallenge: () => void;
   rematch: () => void;
   backToLobby: () => void;
   isHost: boolean;
@@ -419,9 +604,14 @@ function Controls({
           </button>
         ))}
       </div>
-      <button className="danger" disabled={!canChallenge} onClick={challenge}>
-        ウソだ！
-      </button>
+      <div className="challenge-actions">
+        <button className="danger" disabled={!canChallenge} onClick={challenge}>
+          ウソだ！
+        </button>
+        <button disabled={!canSkipChallenge} onClick={skipChallenge}>
+          スキップ
+        </button>
+      </div>
     </section>
   );
 }
@@ -435,9 +625,13 @@ function PlayerList({ room, playerId }: { room: PublicRoomState; playerId: strin
         const goals = player.pieces.filter((piece) => piece.status === "goal").length;
         const fallen = player.pieces.filter((piece) => piece.status === "fallen").length;
         const score = player.pieces.reduce((sum, piece) => sum + (piece.score ?? 0), 0);
+        const choosing = room.currentChallengePlayerId === player.id;
 
         return (
-          <article className={`player-card ${player.id === room.currentTurnPlayerId ? "current" : ""}`} key={player.id}>
+          <article
+            className={`player-card ${player.id === room.currentTurnPlayerId ? "current" : ""} ${choosing ? "choosing" : ""}`}
+            key={player.id}
+          >
             <div className="player-title">
               <span className="color-dot" style={{ background: colorValues[player.color] }} />
               <strong>
@@ -445,6 +639,7 @@ function PlayerList({ room, playerId }: { room: PublicRoomState; playerId: strin
                 {player.id === playerId ? "（あなた）" : ""}
               </strong>
               {player.isHost && <span className="badge">HOST</span>}
+              {choosing && <span className="badge choose-badge">選択中</span>}
             </div>
             <div className="player-stats">
               <span>{colorLabels[player.color]}</span>
@@ -475,6 +670,69 @@ function LogPanel({ logs }: { logs: string[] }) {
   );
 }
 
+function DiceOverlay({ state }: { state: DiceOverlayState }) {
+  const verdictLabel =
+    state.verdict === "truth" ? "ホント" : state.verdict === "lie" ? "ウソ" : state.verdict === "skip" ? "確定" : "";
+
+  return (
+    <div className={`dice-overlay ${state.mode} ${state.verdict ?? ""}`} key={state.key}>
+      <div className="dice-card">
+        <span className="dice-title">{state.title}</span>
+        {state.dice && <div className={`big-dice ${state.dice === "X" ? "x-face" : ""}`}>{state.dice}</div>}
+        {verdictLabel && <strong className="verdict-label">{verdictLabel}</strong>}
+        <p>{state.detail}</p>
+      </div>
+    </div>
+  );
+}
+
+function ActionBanner({ banner }: { banner: ActionBannerState }) {
+  return (
+    <div className={`action-banner ${banner.kind}`} key={banner.key}>
+      {banner.text}
+    </div>
+  );
+}
+
+function RulesModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="rules-title">
+      <section className="rules-modal">
+        <div className="modal-head">
+          <h2 id="rules-title">遊び方</h2>
+          <button onClick={onClose}>閉じる</button>
+        </div>
+        <div className="rules-grid">
+          <article>
+            <h3>目的</h3>
+            <p>自分のコマを先に3個ゴールさせた人が勝ちです。</p>
+          </article>
+          <article>
+            <h3>手番</h3>
+            <p>ダイスを振り、出目を見たあと、1〜4の数字を宣言します。宣言した数だけ進みます。</p>
+          </article>
+          <article>
+            <h3>ブラフ</h3>
+            <p>出目と違う数字を言ってもOKです。Xが出たら必ずウソになります。</p>
+          </article>
+          <article>
+            <h3>指摘</h3>
+            <p>宣言後、他のプレイヤーが順番に30秒ずつ「ウソだ！」か「スキップ」を選びます。</p>
+          </article>
+          <article>
+            <h3>当たり</h3>
+            <p>ウソを見破ると、手番のコマが落ち、指摘した人のコマが宣言数だけ進みます。</p>
+          </article>
+          <article>
+            <h3>外れ</h3>
+            <p>宣言が本当だった場合、指摘した人のコマが落ち、手番の移動は確定します。</p>
+          </article>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function phaseText(phase: PublicRoomState["phase"], status: PublicRoomState["status"]) {
   if (status === "finished") return "終了";
   if (status === "lobby") return "待機";
@@ -484,7 +742,7 @@ function phaseText(phase: PublicRoomState["phase"], status: PublicRoomState["sta
     case "declaring":
       return "宣言";
     case "challengeWindow":
-      return "疑い受付";
+      return "指摘選択";
     case "resolving":
       return "判定";
     default:

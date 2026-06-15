@@ -60,6 +60,11 @@ button:disabled {
   opacity: 0.48;
 }
 
+.ghost {
+  color: #155e75;
+  background: rgba(255, 255, 255, 0.74);
+}
+
 input {
   width: 100%;
   min-height: 44px;
@@ -165,29 +170,63 @@ label {
   margin-bottom: 18px;
 }
 
+.top-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
 .top-bar h1 {
   margin: 10px 0 0;
   color: #164e63;
   font-size: clamp(1.6rem, 4vw, 2.5rem);
 }
 
-.turn-chip {
-  display: flex;
-  gap: 10px;
+.turn-timer {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 14px;
   align-items: center;
-  min-height: 46px;
-  border-radius: 999px;
-  padding: 9px 16px;
+  min-width: 250px;
+  min-height: 70px;
+  border: 2px solid rgba(14, 116, 144, 0.18);
+  border-radius: 8px;
+  padding: 10px 14px;
   background: #ffffff;
   color: #164e63;
-  font-weight: 900;
   box-shadow: 0 10px 26px rgba(39, 85, 112, 0.16);
 }
 
-.turn-chip span {
-  border-radius: 999px;
-  padding: 4px 8px;
-  background: #e0f2fe;
+.turn-timer span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.turn-timer strong {
+  overflow: hidden;
+  font-size: 1rem;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turn-timer b {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  min-width: 62px;
+  border-radius: 8px;
+  padding: 7px 10px;
+  color: #ffffff;
+  background: #0e7490;
+  font-size: 1.8rem;
+  line-height: 1;
+  text-align: center;
+}
+
+.turn-timer.urgent b {
+  background: #dc2626;
+  animation: timerPulse 620ms ease-in-out infinite alternate;
 }
 
 .lobby-panel {
@@ -196,6 +235,12 @@ label {
   max-width: 760px;
   margin: 0 auto;
   padding: 22px;
+}
+
+.lobby-actions {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(180px, 1.2fr);
+  gap: 10px;
 }
 
 .invite-box {
@@ -228,7 +273,7 @@ label {
 
 .status-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
   padding: 14px;
 }
@@ -356,15 +401,23 @@ label {
   box-shadow: 0 4px 7px rgba(0, 0, 0, 0.22);
 }
 
+.piece-moving {
+  animation: pieceHop 850ms cubic-bezier(0.18, 0.9, 0.25, 1.25);
+}
+
 .goal-piece {
   box-shadow:
     0 0 0 4px rgba(255, 255, 255, 0.24),
     0 4px 7px rgba(0, 0, 0, 0.22);
 }
 
+.piece-goal-burst {
+  animation: goalBurst 980ms ease-out;
+}
+
 .controls {
   display: grid;
-  grid-template-columns: minmax(150px, auto) 1fr minmax(120px, auto);
+  grid-template-columns: minmax(150px, auto) 1fr minmax(220px, auto);
   gap: 10px;
   padding: 14px;
 }
@@ -378,6 +431,12 @@ label {
 .finished-controls {
   grid-template-columns: 1fr auto auto;
   align-items: center;
+}
+
+.challenge-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
 
 .side-panel {
@@ -415,6 +474,14 @@ label {
   box-shadow: inset 4px 0 0 #0891b2;
 }
 
+.player-card.choosing {
+  border-color: #f59e0b;
+  background: rgba(255, 251, 235, 0.9);
+  box-shadow:
+    inset 4px 0 0 #f59e0b,
+    0 10px 22px rgba(245, 158, 11, 0.18);
+}
+
 .player-title {
   display: flex;
   gap: 8px;
@@ -434,6 +501,11 @@ label {
   background: #cffafe;
   font-size: 0.68rem;
   font-weight: 900;
+}
+
+.choose-badge {
+  color: #7c2d12;
+  background: #fed7aa;
 }
 
 .player-stats {
@@ -496,6 +568,261 @@ label {
   box-shadow: 0 16px 32px rgba(0, 0, 0, 0.24);
 }
 
+.modal-backdrop,
+.dice-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(9, 36, 52, 0.42);
+}
+
+.rules-modal,
+.dice-card {
+  width: min(760px, 100%);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 30px 80px rgba(9, 36, 52, 0.28);
+}
+
+.rules-modal {
+  max-height: min(720px, calc(100vh - 36px));
+  overflow: auto;
+  padding: 20px;
+}
+
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.modal-head h2 {
+  margin: 0;
+  color: #164e63;
+}
+
+.rules-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.rules-grid article {
+  border: 1px solid rgba(14, 116, 144, 0.14);
+  border-radius: 8px;
+  padding: 13px;
+  background: rgba(224, 242, 254, 0.48);
+}
+
+.rules-grid h3 {
+  margin: 0 0 8px;
+  color: #0e7490;
+}
+
+.rules-grid p {
+  margin: 0;
+  color: #385166;
+  line-height: 1.6;
+}
+
+.dice-overlay {
+  pointer-events: none;
+  background: rgba(8, 47, 73, 0.34);
+}
+
+.dice-card {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  width: min(460px, 100%);
+  padding: 28px;
+  text-align: center;
+  animation: diceCardIn 420ms ease-out both;
+}
+
+.dice-title {
+  color: #155e75;
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.big-dice {
+  display: grid;
+  place-items: center;
+  width: 150px;
+  height: 150px;
+  border: 5px solid #0f766e;
+  border-radius: 24px;
+  color: #0f766e;
+  background:
+    radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.9), transparent 28%),
+    #ffffff;
+  font-size: 5.2rem;
+  font-weight: 1000;
+  line-height: 1;
+  box-shadow:
+    0 18px 0 #0f766e,
+    0 26px 40px rgba(8, 47, 73, 0.25);
+  animation: diceRollIn 800ms cubic-bezier(0.15, 0.8, 0.2, 1.18) both;
+}
+
+.big-dice.x-face {
+  border-color: #dc2626;
+  color: #dc2626;
+  box-shadow:
+    0 18px 0 #991b1b,
+    0 26px 40px rgba(127, 29, 29, 0.25);
+}
+
+.verdict-label {
+  border-radius: 999px;
+  padding: 8px 18px;
+  color: #ffffff;
+  background: #0e7490;
+  font-size: 2rem;
+  animation: verdictPop 900ms 900ms ease-out both;
+}
+
+.dice-overlay.lie .verdict-label {
+  background: #dc2626;
+}
+
+.dice-overlay.truth .verdict-label {
+  background: #16a34a;
+}
+
+.dice-card p {
+  margin: 0;
+  color: #1f2937;
+  font-weight: 800;
+  line-height: 1.6;
+}
+
+.action-banner {
+  position: fixed;
+  left: 50%;
+  top: 126px;
+  z-index: 9;
+  width: min(640px, calc(100% - 28px));
+  transform: translateX(-50%);
+  border-radius: 8px;
+  padding: 15px 18px;
+  color: #ffffff;
+  background: #0e7490;
+  font-size: 1.15rem;
+  font-weight: 900;
+  text-align: center;
+  box-shadow: 0 18px 40px rgba(8, 47, 73, 0.28);
+  animation: bannerDrop 1.8s ease-out both;
+}
+
+.action-banner.goal {
+  background: #16a34a;
+}
+
+.action-banner.fall {
+  background: #dc2626;
+}
+
+@keyframes timerPulse {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.08);
+  }
+}
+
+@keyframes pieceHop {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  35% {
+    transform: translateY(-24px) scale(1.22);
+  }
+  70% {
+    transform: translateY(4px) scale(0.96);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes goalBurst {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.2;
+  }
+  48% {
+    transform: scale(1.55);
+    box-shadow:
+      0 0 0 14px rgba(250, 204, 21, 0.42),
+      0 0 26px rgba(250, 204, 21, 0.8);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes diceCardIn {
+  from {
+    transform: translateY(18px) scale(0.96);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes diceRollIn {
+  0% {
+    transform: rotate(-22deg) scale(0.55);
+    opacity: 0;
+  }
+  55% {
+    transform: rotate(12deg) scale(1.12);
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(0) scale(1);
+  }
+}
+
+@keyframes verdictPop {
+  from {
+    transform: translateY(14px) scale(0.8);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes bannerDrop {
+  0% {
+    transform: translate(-50%, -18px);
+    opacity: 0;
+  }
+  15%,
+  78% {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -10px);
+    opacity: 0;
+  }
+}
+
 @media (max-width: 960px) {
   .start-shell,
   .play-layout {
@@ -522,8 +849,13 @@ label {
     flex-direction: column;
   }
 
-  .turn-chip {
-    justify-content: space-between;
+  .top-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .turn-timer {
+    min-width: 0;
   }
 
   .status-strip {
@@ -533,7 +865,8 @@ label {
   .controls,
   .finished-controls,
   .invite-box,
-  .join-row {
+  .join-row,
+  .lobby-actions {
     grid-template-columns: 1fr;
   }
 
@@ -548,5 +881,15 @@ label {
 
   .bridge {
     min-width: 760px;
+  }
+
+  .rules-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .big-dice {
+    width: 124px;
+    height: 124px;
+    font-size: 4rem;
   }
 }

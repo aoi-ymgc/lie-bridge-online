@@ -36,13 +36,19 @@ export type PublicRoomState = {
   players: PublicPlayer[];
   currentTurnPlayerId: string | null;
   currentDeclaredNumber: DeclaredNumber | null;
+  currentChallengePlayerId: string | null;
   challengerId: string | null;
+  challengeSkippedPlayerIds: string[];
   bridgeLength: number;
   goalCount: number;
   logs: string[];
   challengeEndsAt: number | null;
   declareEndsAt: number | null;
+  revealedDiceResult: DiceResult | null;
+  resolutionText: string | null;
+  resolutionKind: "truth" | "lie" | "skip" | null;
   resultText: string | null;
+  winnerId: string | null;
 };
 
 export type ServerAck<T = object> =

@@ -27,13 +27,20 @@ type Room = {
   currentTurnPlayerId: string | null;
   currentDiceResult: DiceResult | null;
   currentDeclaredNumber: DeclaredNumber | null;
+  currentChallengePlayerId: string | null;
   challengerId: string | null;
+  challengeQueueIds: string[];
+  challengeSkippedPlayerIds: string[];
   bridgeLength: number;
   goalCount: number;
   logs: string[];
   challengeEndsAt: number | null;
   declareEndsAt: number | null;
+  revealedDiceResult: DiceResult | null;
+  resolutionText: string | null;
+  resolutionKind: "truth" | "lie" | "skip" | null;
   resultText: string | null;
+  winnerId: string | null;
   challengeTimer: NodeJS.Timeout | null;
   declareTimer: NodeJS.Timeout | null;
 };
@@ -91,13 +98,19 @@ const publicRoom = (room: Room): PublicRoomState => ({
   players: room.players.map(({ socketId: _socketId, ...player }) => player),
   currentTurnPlayerId: room.currentTurnPlayerId,
   currentDeclaredNumber: room.currentDeclaredNumber,
+  currentChallengePlayerId: room.currentChallengePlayerId,
   challengerId: room.challengerId,
+  challengeSkippedPlayerIds: room.challengeSkippedPlayerIds,
   bridgeLength: room.bridgeLength,
   goalCount: room.goalCount,
   logs: room.logs.slice(-80),
   challengeEndsAt: room.challengeEndsAt,
   declareEndsAt: room.declareEndsAt,
-  resultText: room.resultText
+  revealedDiceResult: room.revealedDiceResult,
+  resolutionText: room.resolutionText,
+  resolutionKind: room.resolutionKind,
+  resultText: room.resultText,
+  winnerId: room.winnerId
 });
 
 const emitRoom = (room: Room) => {
@@ -119,6 +132,16 @@ const clearTimers = (room: Room) => {
   room.declareTimer = null;
   room.challengeEndsAt = null;
   room.declareEndsAt = null;
+};
+
+const resetChallengeState = (room: Room) => {
+  room.currentChallengePlayerId = null;
+  room.challengerId = null;
+  room.challengeQueueIds = [];
+  room.challengeSkippedPlayerIds = [];
+  room.challengeEndsAt = null;
+  if (room.challengeTimer) clearTimeout(room.challengeTimer);
+  room.challengeTimer = null;
 };
 
 const activePiece = (player: Player) => player.pieces.find((piece) => piece.status === "active");
@@ -189,8 +212,15 @@ const finishGame = (room: Room, winner: Player | null, resultText: string) => {
   room.currentTurnPlayerId = null;
   room.currentDiceResult = null;
   room.currentDeclaredNumber = null;
+  room.currentChallengePlayerId = null;
   room.challengerId = null;
+  room.challengeQueueIds = [];
+  room.challengeSkippedPlayerIds = [];
+  room.revealedDiceResult = null;
+  room.resolutionText = null;
+  room.resolutionKind = null;
   room.resultText = resultText;
+  room.winnerId = winner?.id ?? null;
   addLog(room, resultText);
   io.to(room.id).emit("gameFinished", { winnerId: winner?.id ?? null, resultText });
   emitRoom(room);
@@ -234,7 +264,10 @@ const nextTurn = (room: Room, fromPlayerId = room.currentTurnPlayerId) => {
       room.phase = "rolling";
       room.currentDiceResult = null;
       room.currentDeclaredNumber = null;
-      room.challengerId = null;
+      resetChallengeState(room);
+      room.revealedDiceResult = null;
+      room.resolutionText = null;
+      room.resolutionKind = null;
       room.challengeEndsAt = null;
       room.declareEndsAt = null;
       addLog(room, `${candidate.name} の手番です`);
@@ -254,10 +287,14 @@ const resolveChallenge = (room: Room) => {
 
   const truth = dice !== "X" && dice === declared;
   if (truth) {
+    room.resolutionText = `出目は ${dice}。宣言は本当でした`;
+    room.resolutionKind = "truth";
     addLog(room, `出目は ${dice}。宣言は本当でした`);
     fallActivePiece(room, challenger);
     finalizeGoalIfNeeded(room, actor);
   } else {
+    room.resolutionText = `出目は ${dice}。宣言はウソでした`;
+    room.resolutionKind = "lie";
     addLog(room, `出目は ${dice}。宣言はウソでした`);
     fallActivePiece(room, actor);
     const challengerPiece = activePiece(challenger);
@@ -269,7 +306,8 @@ const resolveChallenge = (room: Room) => {
   }
 
   if (!maybeFinishGame(room)) {
-    nextTurn(room, actor.id);
+    emitRoom(room);
+    setTimeout(() => nextTurn(room, actor.id), 900);
   }
 };
 
@@ -279,11 +317,15 @@ const resolveNoChallenge = (room: Room) => {
 
   clearTimers(room);
   room.phase = "resolving";
-  addLog(room, "誰も疑いませんでした。移動が確定します");
+  room.currentChallengePlayerId = null;
+  room.resolutionText = "全員がスキップしました。移動が確定します";
+  room.resolutionKind = "skip";
+  addLog(room, room.resolutionText);
   finalizeGoalIfNeeded(room, actor);
 
   if (!maybeFinishGame(room)) {
-    nextTurn(room, actor.id);
+    emitRoom(room);
+    setTimeout(() => nextTurn(room, actor.id), 900);
   }
 };
 
@@ -296,10 +338,47 @@ const currentPlayerFromSocket = (socketId: string, roomId?: string) => {
   return { room, player };
 };
 
-const startChallengeTimer = (room: Room) => {
+const advanceChallengeTurn = (room: Room, skippedPlayerId?: string) => {
   if (room.challengeTimer) clearTimeout(room.challengeTimer);
-  room.challengeEndsAt = Date.now() + 5000;
-  room.challengeTimer = setTimeout(() => resolveNoChallenge(room), 5000);
+  room.challengeTimer = null;
+
+  if (skippedPlayerId && !room.challengeSkippedPlayerIds.includes(skippedPlayerId)) {
+    room.challengeSkippedPlayerIds.push(skippedPlayerId);
+  }
+
+  const nextId = room.challengeQueueIds.find((playerId) => !room.challengeSkippedPlayerIds.includes(playerId));
+  if (!nextId) {
+    resolveNoChallenge(room);
+    return;
+  }
+
+  const nextPlayer = room.players.find((player) => player.id === nextId);
+  if (!nextPlayer || !activePiece(nextPlayer) || nextPlayer.isEliminated) {
+    advanceChallengeTurn(room, nextId);
+    return;
+  }
+
+  room.currentChallengePlayerId = nextId;
+  room.challengeEndsAt = Date.now() + 30000;
+  room.challengeTimer = setTimeout(() => {
+    addLog(room, `${nextPlayer.name} は時間切れでスキップしました`);
+    advanceChallengeTurn(room, nextId);
+  }, 30000);
+  addLog(room, `${nextPlayer.name} が指摘するか選ぶ番です`);
+  emitRoom(room);
+};
+
+const startChallengeSequence = (room: Room, actor: Player) => {
+  resetChallengeState(room);
+  const orderedPlayers = room.players
+    .slice()
+    .sort((a, b) => a.order - b.order);
+  const actorIndex = orderedPlayers.findIndex((player) => player.id === actor.id);
+  room.challengeQueueIds = orderedPlayers
+    .map((_, index) => orderedPlayers[(actorIndex + index + 1 + orderedPlayers.length) % orderedPlayers.length])
+    .filter((player) => player.id !== actor.id && activePiece(player) && !player.isEliminated)
+    .map((player) => player.id);
+  advanceChallengeTurn(room);
 };
 
 const startDeclareTimer = (room: Room) => {
@@ -323,8 +402,7 @@ const declareNumber = (room: Room, declaredNumber: DeclaredNumber, isTimeout = f
   piece.position += declaredNumber;
   room.phase = "challengeWindow";
   addLog(room, `${actor.name} は「${declaredNumber}」と宣言しました${isTimeout ? "（時間切れの自動宣言）" : ""}`);
-  startChallengeTimer(room);
-  emitRoom(room);
+  startChallengeSequence(room, actor);
   return true;
 };
 
@@ -334,9 +412,16 @@ const resetRoomForGame = (room: Room) => {
   room.phase = "rolling";
   room.currentDiceResult = null;
   room.currentDeclaredNumber = null;
+  room.currentChallengePlayerId = null;
   room.challengerId = null;
+  room.challengeQueueIds = [];
+  room.challengeSkippedPlayerIds = [];
+  room.revealedDiceResult = null;
+  room.resolutionText = null;
+  room.resolutionKind = null;
   room.goalCount = 0;
   room.resultText = null;
+  room.winnerId = null;
   room.logs = [];
   room.players.forEach((player, index) => {
     player.order = index;
@@ -376,13 +461,20 @@ const makeRoom = (playerName: string, socketId: string): { room: Room; player: P
     currentTurnPlayerId: null,
     currentDiceResult: null,
     currentDeclaredNumber: null,
+    currentChallengePlayerId: null,
     challengerId: null,
+    challengeQueueIds: [],
+    challengeSkippedPlayerIds: [],
     bridgeLength: 10,
     goalCount: 0,
     logs: [`${player.name} がルームを作りました`],
     challengeEndsAt: null,
     declareEndsAt: null,
+    revealedDiceResult: null,
+    resolutionText: null,
+    resolutionKind: null,
     resultText: null,
+    winnerId: null,
     challengeTimer: null,
     declareTimer: null
   };
@@ -508,7 +600,11 @@ io.on("connection", (socket) => {
       ack?.({ ok: false, error: "今は疑えません" });
       return;
     }
-    if (room.currentTurnPlayerId === player.id || !activePiece(player) || player.isEliminated) {
+    if (room.currentChallengePlayerId !== player.id) {
+      ack?.({ ok: false, error: "まだあなたが選ぶ番ではありません" });
+      return;
+    }
+    if (room.currentTurnPlayerId === player.id || !activePiece(player) || player.isEliminated || !room.currentDiceResult || !room.currentDeclaredNumber) {
       ack?.({ ok: false, error: "このプレイヤーは疑えません" });
       return;
     }
@@ -517,12 +613,33 @@ io.on("connection", (socket) => {
     room.challengeTimer = null;
     room.challengeEndsAt = null;
     room.challengerId = player.id;
+    room.currentChallengePlayerId = null;
     room.phase = "resolving";
+    room.revealedDiceResult = room.currentDiceResult;
+    const truth = room.currentDiceResult !== "X" && room.currentDiceResult === room.currentDeclaredNumber;
+    room.resolutionText = `出目は ${room.currentDiceResult}。宣言は${truth ? "本当" : "ウソ"}でした`;
+    room.resolutionKind = truth ? "truth" : "lie";
     addLog(room, `${player.name} が「ウソだ！」を宣言しました`);
     io.to(room.id).emit("diceRevealed", { diceResult: room.currentDiceResult });
     ack?.({ ok: true });
     emitRoom(room);
-    setTimeout(() => resolveChallenge(room), 1200);
+    setTimeout(() => resolveChallenge(room), 3600);
+  });
+
+  socket.on("skipChallenge", (payload: { roomId: string }, ack?: (response: ServerAck) => void) => {
+    const state = currentPlayerFromSocket(socket.id, payload.roomId);
+    if (!state) {
+      ack?.({ ok: false, error: "ルームに参加していません" });
+      return;
+    }
+    const { room, player } = state;
+    if (room.phase !== "challengeWindow" || room.currentChallengePlayerId !== player.id) {
+      ack?.({ ok: false, error: "今はスキップできません" });
+      return;
+    }
+    addLog(room, `${player.name} はスキップしました`);
+    ack?.({ ok: true });
+    advanceChallengeTurn(room, player.id);
   });
 
   socket.on("rematch", (payload: { roomId: string }, ack?: (response: ServerAck) => void) => {
@@ -568,11 +685,48 @@ io.on("connection", (socket) => {
     room.currentTurnPlayerId = null;
     room.currentDiceResult = null;
     room.currentDeclaredNumber = null;
+    room.currentChallengePlayerId = null;
     room.challengerId = null;
+    room.challengeQueueIds = [];
+    room.challengeSkippedPlayerIds = [];
+    room.revealedDiceResult = null;
+    room.resolutionText = null;
+    room.resolutionKind = null;
     room.resultText = null;
+    room.winnerId = null;
     room.logs = ["ロビーに戻りました"];
     ack?.({ ok: true });
     emitRoom(room);
+  });
+
+  socket.on("leaveRoom", (payload: { roomId: string }, ack?: (response: ServerAck) => void) => {
+    const state = currentPlayerFromSocket(socket.id, payload.roomId);
+    if (!state) {
+      ack?.({ ok: true });
+      return;
+    }
+    const { room, player } = state;
+    if (room.status !== "lobby") {
+      ack?.({ ok: false, error: "ゲーム中はトップへ戻れません" });
+      return;
+    }
+
+    room.players = room.players.filter((item) => item.id !== player.id);
+    socket.leave(room.id);
+    socket.data.roomId = undefined;
+    socket.data.playerId = undefined;
+    addLog(room, `${player.name} がロビーを退出しました`);
+
+    if (room.players.length === 0) {
+      clearTimers(room);
+      rooms.delete(room.id);
+    } else {
+      if (!room.players.some((item) => item.isHost)) {
+        room.players[0].isHost = true;
+      }
+      emitRoom(room);
+    }
+    ack?.({ ok: true });
   });
 
   socket.on("disconnect", () => {
