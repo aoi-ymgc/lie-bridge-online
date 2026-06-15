@@ -13,7 +13,7 @@
     "build": "npm run build:client && npm run build:server",
     "build:client": "vite build --config client/vite.config.ts",
     "build:server": "tsc -p server/tsconfig.json",
-    "start": "node server/dist/index.js"
+    "start": "node server/dist/server/src/index.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
