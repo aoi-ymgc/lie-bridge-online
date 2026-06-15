@@ -14,7 +14,7 @@ type Props = {
 
 type DiceOverlayState = {
   key: number;
-  mode: "private" | "reveal" | "victory";
+  mode: "rolling" | "private" | "reveal" | "victory";
   dice?: DiceResult;
   title: string;
   detail: string;
@@ -61,6 +61,7 @@ function App({ socket }: Props) {
   const [motionPieceIds, setMotionPieceIds] = useState<Set<string>>(new Set());
   const previousPiecesRef = useRef<Map<string, string>>(new Map());
   const lastLogRef = useRef("");
+  const diceRevealTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 250);
@@ -86,13 +87,18 @@ function App({ socket }: Props) {
     });
     socket.on("privateDiceResult", ({ diceResult }: { diceResult: DiceResult }) => {
       setPrivateDice(diceResult);
-      setDiceOverlay({
-        key: Date.now(),
-        mode: "private",
-        dice: diceResult,
-        title: "あなたの出目",
-        detail: "この出目は自分だけに見えています"
-      });
+      if (diceRevealTimerRef.current) {
+        window.clearTimeout(diceRevealTimerRef.current);
+      }
+      diceRevealTimerRef.current = window.setTimeout(() => {
+        setDiceOverlay({
+          key: Date.now(),
+          mode: "private",
+          dice: diceResult,
+          title: "あなたの出目",
+          detail: "この出目は自分だけに見えています"
+        });
+      }, 780);
     });
     socket.on("diceRevealed", ({ diceResult }: { diceResult: DiceResult }) => {
       setRevealedDice(diceResult);
@@ -113,8 +119,16 @@ function App({ socket }: Props) {
       socket.off("diceRevealed");
       socket.off("gameFinished");
       socket.off("connect_error");
+      if (diceRevealTimerRef.current) {
+        window.clearTimeout(diceRevealTimerRef.current);
+      }
     };
   }, [socket]);
+
+  useEffect(() => {
+    if (!room || room.status === "finished") return;
+    setDiceOverlay((current) => (current?.mode === "victory" ? null : current));
+  }, [room?.status, room?.phase]);
 
   useEffect(() => {
     if (!privateDice) return;
@@ -167,7 +181,7 @@ function App({ socket }: Props) {
     lastLogRef.current = latest;
     const kind = latest.includes("ゴール")
       ? "goal"
-      : latest.includes("落ち")
+      : latest.includes("落ち") || latest.includes("失いました")
         ? "fall"
         : latest.includes("進み")
           ? "move"
@@ -190,13 +204,13 @@ function App({ socket }: Props) {
   const inviteUrl = room ? `${window.location.origin}${window.location.pathname}?room=${room.id}` : "";
   const isMyTurn = Boolean(room && playerId && room.currentTurnPlayerId === playerId);
   const myActivePiece = me?.pieces.find((piece) => piece.status === "active") ?? null;
+  const myGoalPieces = me?.pieces.filter((piece) => piece.status === "goal") ?? [];
   const canChallenge = Boolean(
     room?.phase === "challengeWindow" &&
       room.currentChallengePlayerId === playerId &&
       !isMyTurn &&
       !room.challengerId &&
-      myActivePiece &&
-      !me?.isEliminated
+      (myActivePiece || myGoalPieces.length > 0)
   );
   const canSkipChallenge = Boolean(room?.phase === "challengeWindow" && room.currentChallengePlayerId === playerId);
   const secondsLeft = room?.challengeEndsAt
@@ -254,7 +268,23 @@ function App({ socket }: Props) {
     emitWithAck(event, { roomId, ...payload });
   };
 
+  const clearEndOverlays = () => {
+    setDiceOverlay((current) => (current?.mode === "victory" ? null : current));
+    setActionBanner(null);
+  };
+
+  const rollDiceWithAnimation = () => {
+    setDiceOverlay({
+      key: Date.now(),
+      mode: "rolling",
+      title: "ダイスロール！",
+      detail: "何が出るかは、まだ雲の中"
+    });
+    action("rollDice");
+  };
+
   const leaveToTitle = () => {
+    clearEndOverlays();
     if (!roomId) {
       setRoom(null);
       return;
@@ -265,6 +295,7 @@ function App({ socket }: Props) {
       setPlayerId("");
       setPrivateDice(null);
       setRevealedDice(null);
+      setDiceOverlay(null);
       window.history.replaceState({}, "", window.location.pathname);
     });
   };
@@ -362,24 +393,30 @@ function App({ socket }: Props) {
               isMyTurn={isMyTurn}
               canChallenge={canChallenge}
               canSkipChallenge={canSkipChallenge}
-              rollDice={() => action("rollDice")}
+              rollDice={rollDiceWithAnimation}
               declareNumber={(declaredNumber) => action("declareNumber", { declaredNumber })}
               challenge={() => action("challenge")}
               skipChallenge={() => action("skipChallenge")}
-              rematch={() => action("rematch")}
-              backToLobby={() => action("backToLobby")}
+              rematch={() => {
+                clearEndOverlays();
+                action("rematch");
+              }}
+              backToLobby={() => {
+                clearEndOverlays();
+                action("backToLobby");
+              }}
               isHost={Boolean(me?.isHost)}
             />
           </section>
 
           <aside className="side-panel">
             <PlayerList room={room} playerId={playerId} />
-            <LogPanel logs={room.logs} />
+            <LogPanel room={room} />
           </aside>
         </div>
       )}
 
-      {diceOverlay && <DiceOverlay state={diceOverlay} />}
+      {diceOverlay && <DiceOverlay state={diceOverlay} onDismiss={() => setDiceOverlay(null)} />}
       {actionBanner && <ActionBanner banner={actionBanner} />}
       {showRules && <RulesModal onClose={() => setShowRules(false)} />}
       {error && <div className="toast">{error}</div>}
@@ -507,6 +544,31 @@ function Bridge({ room, motionPieceIds }: { room: PublicRoomState; motionPieceId
     <section className="bridge-wrap" aria-label="橋の盤面">
       <div className="cloud cloud-left" />
       <div className="cloud cloud-right" />
+      <div className="reserve-dock" aria-label="待機中のコマ">
+        <span className="reserve-title">残機</span>
+        {room.players.map((player) => {
+          const waitingPieces = player.pieces.filter((piece) => piece.status === "waiting");
+          return (
+            <div className="reserve-row" key={player.id}>
+              <strong style={{ color: colorValues[player.color] }}>{player.name}</strong>
+              <div className="reserve-pieces">
+                {waitingPieces.length ? (
+                  waitingPieces.map((piece) => (
+                    <span
+                      className="piece reserve-piece"
+                      key={piece.id}
+                      title={`${player.name} の残機`}
+                      style={{ background: colorValues[player.color] }}
+                    />
+                  ))
+                ) : (
+                  <span className="reserve-empty">なし</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
       <div className="bridge">
         {cells.map((position) => (
           <div className="bridge-cell" key={position}>
@@ -657,30 +719,81 @@ function PlayerList({ room, playerId }: { room: PublicRoomState; playerId: strin
   );
 }
 
-function LogPanel({ logs }: { logs: string[] }) {
+function LogPanel({ room }: { room: PublicRoomState }) {
   return (
     <section className="logs">
       <h2>ログ</h2>
       <div className="log-list">
-        {[...logs].reverse().map((log, index) => (
-          <p key={`${log}-${index}`}>{log}</p>
+        {[...room.logs].reverse().map((log, index) => (
+          <p key={`${log}-${index}`}>
+            <ColoredLogLine log={log} players={room.players} />
+          </p>
         ))}
       </div>
     </section>
   );
 }
 
-function DiceOverlay({ state }: { state: DiceOverlayState }) {
-  const verdictLabel =
-    state.verdict === "truth" ? "ホント" : state.verdict === "lie" ? "ウソ" : state.verdict === "skip" ? "確定" : "";
+function ColoredLogLine({ log, players }: { log: string; players: PublicPlayer[] }) {
+  const orderedPlayers = players.slice().sort((a, b) => b.name.length - a.name.length);
+  const segments: Array<{ text: string; player?: PublicPlayer }> = [];
+  let cursor = 0;
+
+  while (cursor < log.length) {
+    let nextMatch: { index: number; player: PublicPlayer } | null = null;
+    orderedPlayers.forEach((player) => {
+      const index = log.indexOf(player.name, cursor);
+      if (index >= 0 && (!nextMatch || index < nextMatch.index)) {
+        nextMatch = { index, player };
+      }
+    });
+
+    if (!nextMatch) {
+      segments.push({ text: log.slice(cursor) });
+      break;
+    }
+
+    if (nextMatch.index > cursor) {
+      segments.push({ text: log.slice(cursor, nextMatch.index) });
+    }
+    segments.push({ text: nextMatch.player.name, player: nextMatch.player });
+    cursor = nextMatch.index + nextMatch.player.name.length;
+  }
 
   return (
-    <div className={`dice-overlay ${state.mode} ${state.verdict ?? ""}`} key={state.key}>
-      <div className="dice-card">
+    <>
+      {segments.map((segment, index) =>
+        segment.player ? (
+          <strong className="log-name" key={`${segment.text}-${index}`} style={{ color: colorValues[segment.player.color] }}>
+            {segment.text}
+          </strong>
+        ) : (
+          <span key={`${segment.text}-${index}`}>{segment.text}</span>
+        )
+      )}
+    </>
+  );
+}
+
+function DiceOverlay({ state, onDismiss }: { state: DiceOverlayState; onDismiss: () => void }) {
+  const verdictLabel =
+    state.verdict === "truth" ? "ホント" : state.verdict === "lie" ? "ウソ" : state.verdict === "skip" ? "確定" : "";
+  const cutinLabel = state.verdict === "truth" ? "指摘失敗！" : state.verdict === "lie" ? "見破った！" : "";
+
+  return (
+    <div
+      className={`dice-overlay ${state.mode} ${state.verdict ?? ""}`}
+      key={state.key}
+      onClick={state.mode === "victory" ? onDismiss : undefined}
+    >
+      <div className="dice-card" onClick={state.mode === "victory" ? onDismiss : (event) => event.stopPropagation()}>
         <span className="dice-title">{state.title}</span>
+        {state.mode === "rolling" && <div className="big-dice rolling-dice">?</div>}
         {state.dice && <div className={`big-dice ${state.dice === "X" ? "x-face" : ""}`}>{state.dice}</div>}
+        {cutinLabel && <div className="cutin-text">{cutinLabel}</div>}
         {verdictLabel && <strong className="verdict-label">{verdictLabel}</strong>}
         <p>{state.detail}</p>
+        {state.mode === "victory" && <button onClick={onDismiss}>閉じる</button>}
       </div>
     </div>
   );
@@ -726,6 +839,10 @@ function RulesModal({ onClose }: { onClose: () => void }) {
           <article>
             <h3>外れ</h3>
             <p>宣言が本当だった場合、指摘した人のコマが落ち、手番の移動は確定します。</p>
+          </article>
+          <article>
+            <h3>観戦者の勝負</h3>
+            <p>動けるコマがなくても、ゴール済みコマがあればそれを賭けて指摘できます。外すとそのコマを失います。</p>
           </article>
         </div>
       </section>

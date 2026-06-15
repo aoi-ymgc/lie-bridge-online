@@ -148,6 +148,9 @@ const activePiece = (player: Player) => player.pieces.find((piece) => piece.stat
 const waitingPiece = (player: Player) => player.pieces.find((piece) => piece.status === "waiting");
 const goalPieces = (player: Player) => player.pieces.filter((piece) => piece.status === "goal");
 const scoreOf = (player: Player) => goalPieces(player).reduce((sum, piece) => sum + (piece.score ?? 0), 0);
+const latestGoalPiece = (player: Player) =>
+  goalPieces(player).sort((a, b) => (b.goalOrder ?? 0) - (a.goalOrder ?? 0))[0];
+const canChallengeWithStake = (player: Player) => Boolean(activePiece(player) || latestGoalPiece(player));
 
 const ensureActivePiece = (player: Player) => {
   if (activePiece(player) || player.isEliminated) return;
@@ -172,6 +175,23 @@ const fallActivePiece = (room: Room, player: Player) => {
   piece.position = -1;
   addLog(room, `${player.name} のコマが雲の下へ落ちました`);
   ensureActivePiece(player);
+  refreshElimination(player);
+};
+
+const loseChallengeStake = (room: Room, player: Player) => {
+  const piece = activePiece(player);
+  if (piece) {
+    fallActivePiece(room, player);
+    return;
+  }
+
+  const goalPiece = latestGoalPiece(player);
+  if (!goalPiece) return;
+  goalPiece.status = "fallen";
+  goalPiece.position = -1;
+  goalPiece.goalOrder = undefined;
+  goalPiece.score = undefined;
+  addLog(room, `${player.name} は賭けたゴール済みコマを失いました`);
   refreshElimination(player);
 };
 
@@ -290,7 +310,7 @@ const resolveChallenge = (room: Room) => {
     room.resolutionText = `出目は ${dice}。宣言は本当でした`;
     room.resolutionKind = "truth";
     addLog(room, `出目は ${dice}。宣言は本当でした`);
-    fallActivePiece(room, challenger);
+    loseChallengeStake(room, challenger);
     finalizeGoalIfNeeded(room, actor);
   } else {
     room.resolutionText = `出目は ${dice}。宣言はウソでした`;
@@ -302,6 +322,8 @@ const resolveChallenge = (room: Room) => {
       challengerPiece.position += declared;
       addLog(room, `${challenger.name} のコマが${declared}マス進みました`);
       finalizeGoalIfNeeded(room, challenger);
+    } else {
+      addLog(room, `${challenger.name} はゴール済みコマを守りました`);
     }
   }
 
@@ -353,7 +375,7 @@ const advanceChallengeTurn = (room: Room, skippedPlayerId?: string) => {
   }
 
   const nextPlayer = room.players.find((player) => player.id === nextId);
-  if (!nextPlayer || !activePiece(nextPlayer) || nextPlayer.isEliminated) {
+  if (!nextPlayer || !canChallengeWithStake(nextPlayer)) {
     advanceChallengeTurn(room, nextId);
     return;
   }
@@ -376,7 +398,7 @@ const startChallengeSequence = (room: Room, actor: Player) => {
   const actorIndex = orderedPlayers.findIndex((player) => player.id === actor.id);
   room.challengeQueueIds = orderedPlayers
     .map((_, index) => orderedPlayers[(actorIndex + index + 1 + orderedPlayers.length) % orderedPlayers.length])
-    .filter((player) => player.id !== actor.id && activePiece(player) && !player.isEliminated)
+    .filter((player) => player.id !== actor.id && canChallengeWithStake(player))
     .map((player) => player.id);
   advanceChallengeTurn(room);
 };
@@ -604,7 +626,7 @@ io.on("connection", (socket) => {
       ack?.({ ok: false, error: "まだあなたが選ぶ番ではありません" });
       return;
     }
-    if (room.currentTurnPlayerId === player.id || !activePiece(player) || player.isEliminated || !room.currentDiceResult || !room.currentDeclaredNumber) {
+    if (room.currentTurnPlayerId === player.id || !canChallengeWithStake(player) || !room.currentDiceResult || !room.currentDeclaredNumber) {
       ack?.({ ok: false, error: "このプレイヤーは疑えません" });
       return;
     }

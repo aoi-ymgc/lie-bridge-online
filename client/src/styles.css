@@ -2,7 +2,7 @@
   color: #1f2937;
   background: #dff6ff;
   font-family:
-    Inter, "BIZ UDPGothic", "Yu Gothic", "Hiragino Sans", system-ui, sans-serif;
+    "Arial Rounded MT Bold", "BIZ UDPGothic", "Yu Gothic", "Hiragino Sans", Inter, system-ui, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   --sky: #dff6ff;
@@ -36,7 +36,7 @@ input {
 }
 
 button {
-  min-height: 42px;
+  min-height: 48px;
   border: 1px solid rgba(30, 64, 92, 0.18);
   border-radius: 8px;
   padding: 0 16px;
@@ -100,15 +100,19 @@ label {
   max-width: 760px;
   margin: 14px 0;
   color: #164e63;
-  font-size: clamp(2.35rem, 7vw, 5.2rem);
-  line-height: 1.02;
+  font-size: clamp(2.75rem, 7.5vw, 5.8rem);
+  line-height: 1;
+  text-shadow:
+    0 4px 0 rgba(255, 255, 255, 0.86),
+    0 14px 28px rgba(22, 78, 99, 0.16);
 }
 
 .start-hero p {
   max-width: 620px;
   color: #33566a;
-  font-size: 1.08rem;
+  font-size: 1.18rem;
   line-height: 1.8;
+  font-weight: 800;
 }
 
 .sky-mark,
@@ -119,7 +123,8 @@ label {
   padding: 7px 12px;
   color: #155e75;
   background: rgba(255, 255, 255, 0.72);
-  font-weight: 800;
+  font-weight: 1000;
+  letter-spacing: 0;
 }
 
 .entry-panel,
@@ -179,7 +184,9 @@ label {
 .top-bar h1 {
   margin: 10px 0 0;
   color: #164e63;
-  font-size: clamp(1.6rem, 4vw, 2.5rem);
+  font-size: clamp(2rem, 4.5vw, 3.35rem);
+  line-height: 0.98;
+  text-shadow: 0 4px 0 rgba(255, 255, 255, 0.78);
 }
 
 .turn-timer {
@@ -302,7 +309,7 @@ label {
   overflow: hidden;
   border-radius: 8px;
   min-height: 340px;
-  padding: 82px 26px;
+  padding: 146px 26px 82px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.56), rgba(255, 255, 255, 0.2)),
     linear-gradient(180deg, #9bdcf3, #e9fbff);
@@ -359,6 +366,61 @@ label {
   min-width: 760px;
 }
 
+.reserve-dock {
+  position: absolute;
+  top: 16px;
+  left: 18px;
+  z-index: 2;
+  display: grid;
+  gap: 6px;
+  width: min(520px, calc(100% - 36px));
+  border: 2px solid rgba(14, 116, 144, 0.18);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 14px 28px rgba(39, 85, 112, 0.16);
+}
+
+.reserve-title {
+  color: #164e63;
+  font-size: 0.86rem;
+  font-weight: 1000;
+}
+
+.reserve-row {
+  display: grid;
+  grid-template-columns: minmax(72px, 118px) 1fr;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.reserve-row strong {
+  overflow: hidden;
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reserve-pieces {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.reserve-piece {
+  width: 16px;
+  height: 16px;
+  box-shadow: 0 3px 5px rgba(0, 0, 0, 0.2);
+}
+
+.reserve-empty {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
 .bridge-cell,
 .goal-cell {
   position: relative;
@@ -394,6 +456,7 @@ label {
 }
 
 .piece {
+  position: relative;
   width: 20px;
   height: 20px;
   border: 2px solid rgba(255, 255, 255, 0.9);
@@ -402,7 +465,7 @@ label {
 }
 
 .piece-moving {
-  animation: pieceHop 850ms cubic-bezier(0.18, 0.9, 0.25, 1.25);
+  animation: pieceTravel 920ms cubic-bezier(0.18, 0.9, 0.25, 1.25);
 }
 
 .goal-piece {
@@ -453,7 +516,8 @@ label {
 .logs h2 {
   margin: 0 0 12px;
   color: #164e63;
-  font-size: 1rem;
+  font-size: 1.18rem;
+  font-weight: 1000;
 }
 
 .player-card {
@@ -555,6 +619,10 @@ label {
   line-height: 1.45;
 }
 
+.log-name {
+  font-weight: 1000;
+}
+
 .toast {
   position: fixed;
   right: 18px;
@@ -632,7 +700,7 @@ label {
 }
 
 .dice-overlay {
-  pointer-events: none;
+  pointer-events: auto;
   background: rgba(8, 47, 73, 0.34);
 }
 
@@ -648,8 +716,8 @@ label {
 
 .dice-title {
   color: #155e75;
-  font-size: 1rem;
-  font-weight: 900;
+  font-size: 1.28rem;
+  font-weight: 1000;
 }
 
 .big-dice {
@@ -672,6 +740,11 @@ label {
   animation: diceRollIn 800ms cubic-bezier(0.15, 0.8, 0.2, 1.18) both;
 }
 
+.rolling-dice {
+  color: #0e7490;
+  animation: diceRolling 780ms linear infinite;
+}
+
 .big-dice.x-face {
   border-color: #dc2626;
   color: #dc2626;
@@ -687,6 +760,27 @@ label {
   background: #0e7490;
   font-size: 2rem;
   animation: verdictPop 900ms 900ms ease-out both;
+}
+
+.cutin-text {
+  width: min(520px, 92vw);
+  transform: rotate(-7deg);
+  border: 4px solid #ffffff;
+  border-radius: 8px;
+  padding: 10px 18px;
+  color: #ffffff;
+  background: #dc2626;
+  font-size: clamp(2rem, 8vw, 4.2rem);
+  font-weight: 1000;
+  line-height: 1;
+  text-shadow: 0 4px 0 rgba(0, 0, 0, 0.18);
+  box-shadow: 0 18px 36px rgba(127, 29, 29, 0.28);
+  animation: cutinSlash 900ms 520ms cubic-bezier(0.12, 0.85, 0.22, 1.16) both;
+}
+
+.dice-overlay.truth .cutin-text {
+  background: #16a34a;
+  box-shadow: 0 18px 36px rgba(22, 101, 52, 0.28);
 }
 
 .dice-overlay.lie .verdict-label {
@@ -715,8 +809,8 @@ label {
   padding: 15px 18px;
   color: #ffffff;
   background: #0e7490;
-  font-size: 1.15rem;
-  font-weight: 900;
+  font-size: clamp(1.25rem, 4vw, 2rem);
+  font-weight: 1000;
   text-align: center;
   box-shadow: 0 18px 40px rgba(8, 47, 73, 0.28);
   animation: bannerDrop 1.8s ease-out both;
@@ -728,6 +822,7 @@ label {
 
 .action-banner.fall {
   background: #dc2626;
+  animation: fallAlert 1.9s ease-out both;
 }
 
 @keyframes timerPulse {
@@ -751,6 +846,23 @@ label {
   }
   100% {
     transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes pieceTravel {
+  0% {
+    transform: translateX(-28px) translateY(0) scale(0.92);
+    opacity: 0.55;
+  }
+  34% {
+    transform: translateX(-12px) translateY(-28px) scale(1.24);
+    opacity: 1;
+  }
+  70% {
+    transform: translateX(2px) translateY(4px) scale(0.96);
+  }
+  100% {
+    transform: translateX(0) translateY(0) scale(1);
   }
 }
 
@@ -796,6 +908,33 @@ label {
   }
 }
 
+@keyframes diceRolling {
+  0% {
+    transform: rotate(0deg) scale(0.92);
+  }
+  50% {
+    transform: rotate(190deg) scale(1.08);
+  }
+  100% {
+    transform: rotate(360deg) scale(0.92);
+  }
+}
+
+@keyframes cutinSlash {
+  0% {
+    transform: translateX(-90vw) rotate(-10deg) scale(0.75);
+    opacity: 0;
+  }
+  48% {
+    transform: translateX(0) rotate(-7deg) scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(0) rotate(-7deg) scale(1);
+    opacity: 1;
+  }
+}
+
 @keyframes verdictPop {
   from {
     transform: translateY(14px) scale(0.8);
@@ -819,6 +958,31 @@ label {
   }
   100% {
     transform: translate(-50%, -10px);
+    opacity: 0;
+  }
+}
+
+@keyframes fallAlert {
+  0% {
+    transform: translate(-50%, -18px) rotate(0);
+    opacity: 0;
+  }
+  18% {
+    transform: translate(-50%, 0) rotate(-1deg);
+    opacity: 1;
+  }
+  34% {
+    transform: translate(-50%, 0) rotate(1deg);
+  }
+  50% {
+    transform: translate(-50%, 0) rotate(-1deg);
+  }
+  76% {
+    transform: translate(-50%, 0) rotate(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, 22px) scale(0.96);
     opacity: 0;
   }
 }
@@ -876,7 +1040,16 @@ label {
 
   .bridge-wrap {
     min-height: 280px;
-    padding: 58px 14px;
+    padding: 168px 14px 58px;
+  }
+
+  .reserve-dock {
+    left: 10px;
+    width: calc(100% - 20px);
+  }
+
+  .reserve-row {
+    grid-template-columns: minmax(64px, 94px) 1fr;
   }
 
   .bridge {
