@@ -275,18 +275,46 @@ label {
 
 .invite-box {
   display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 10px;
-  align-items: center;
-}
-
-.invite-box code {
-  overflow: hidden;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: end;
+  border: 2px solid rgba(18, 54, 79, 0.1);
   border-radius: 8px;
   padding: 12px;
-  background: rgba(14, 116, 144, 0.1);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(236, 254, 255, 0.9));
+}
+
+.invite-copy {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.invite-copy span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 1000;
+}
+
+.invite-box code,
+.qr-detail code {
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 152, 189, 0.18);
+  padding: 12px;
+  background: rgba(0, 152, 189, 0.1);
+  color: var(--navy);
+  font-weight: 900;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.invite-actions,
+.qr-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .play-layout {
@@ -509,7 +537,7 @@ label {
 
 .controls {
   display: grid;
-  grid-template-columns: minmax(150px, auto) 1fr minmax(220px, auto);
+  grid-template-columns: minmax(150px, auto) 1fr minmax(220px, auto) auto;
   gap: 10px;
   padding: 14px;
 }
@@ -521,7 +549,7 @@ label {
 }
 
 .finished-controls {
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: 1fr auto auto auto;
   align-items: center;
 }
 
@@ -529,6 +557,17 @@ label {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+
+.soft-danger {
+  color: #b91c1c;
+  border-color: rgba(185, 28, 28, 0.24);
+  background: #fff1f2;
+  box-shadow: 0 7px 0 rgba(153, 27, 27, 0.16);
+}
+
+.disband-button {
+  white-space: nowrap;
 }
 
 .side-panel {
@@ -752,7 +791,8 @@ label {
 }
 
 .rules-modal,
-.dice-card {
+.dice-card,
+.qr-modal {
   width: min(760px, 100%);
   border: 1px solid rgba(255, 255, 255, 0.75);
   border-radius: 8px;
@@ -760,10 +800,51 @@ label {
   box-shadow: 0 30px 80px rgba(9, 36, 52, 0.28);
 }
 
-.rules-modal {
+.rules-modal,
+.qr-modal {
   max-height: min(720px, calc(100vh - 36px));
   overflow: auto;
   padding: 20px;
+}
+
+.qr-modal {
+  width: min(680px, 100%);
+}
+
+.qr-content {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+}
+
+.qr-content img,
+.qr-loading {
+  width: 220px;
+  height: 220px;
+  border: 8px solid #ffffff;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 12px 0 rgba(18, 54, 79, 0.12), 0 22px 38px rgba(12, 39, 58, 0.18);
+}
+
+.qr-loading {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-weight: 1000;
+}
+
+.qr-detail {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.qr-detail strong {
+  color: var(--navy);
+  font-size: 1.2rem;
+  line-height: 1.45;
 }
 
 .modal-head {
@@ -1139,6 +1220,12 @@ label {
     grid-template-columns: 1fr;
   }
 
+  .invite-actions,
+  .qr-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .controls {
     position: sticky;
     bottom: 8px;
@@ -1212,5 +1299,20 @@ label {
     width: 124px;
     height: 124px;
     font-size: 4rem;
+  }
+
+  .qr-content {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .qr-content img,
+  .qr-loading {
+    width: min(240px, 78vw);
+    height: min(240px, 78vw);
+  }
+
+  .qr-detail {
+    width: 100%;
   }
 }

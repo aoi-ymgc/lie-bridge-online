@@ -128,6 +128,21 @@ const addLog = (room: Room, message: string) => {
   io.to(room.id).emit("turnMessage", { message });
 };
 
+const disbandRoom = (room: Room, reason: string) => {
+  clearTimers(room);
+  io.to(room.id).emit("roomDisbanded", { reason });
+  room.players.forEach((player) => {
+    if (!player.socketId) return;
+    const playerSocket = io.sockets.sockets.get(player.socketId);
+    playerSocket?.leave(room.id);
+    if (playerSocket) {
+      playerSocket.data.roomId = undefined;
+      playerSocket.data.playerId = undefined;
+    }
+  });
+  rooms.delete(room.id);
+};
+
 const addRoundResult = (room: Room, result: Omit<RoundResult, "id">) => {
   room.roundResults.push({
     id: `${Date.now()}-${room.roundResults.length}`,
@@ -758,6 +773,21 @@ io.on("connection", (socket) => {
     room.roundResults = [];
     ack?.({ ok: true });
     emitRoom(room);
+  });
+
+  socket.on("disbandRoom", (payload: { roomId: string }, ack?: (response: ServerAck) => void) => {
+    const state = currentPlayerFromSocket(socket.id, payload.roomId);
+    if (!state) {
+      ack?.({ ok: false, error: "ルームに参加していません" });
+      return;
+    }
+    const { room, player } = state;
+    if (!player.isHost) {
+      ack?.({ ok: false, error: "ホストだけが解散できます" });
+      return;
+    }
+    ack?.({ ok: true });
+    disbandRoom(room, `${player.name} がゲームを中止してルームを解散しました`);
   });
 
   socket.on("leaveRoom", (payload: { roomId: string }, ack?: (response: ServerAck) => void) => {

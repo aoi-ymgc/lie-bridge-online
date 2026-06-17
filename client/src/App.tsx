@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import QRCode from "qrcode";
 import type { Socket } from "socket.io-client";
 import type {
   DeclaredNumber,
@@ -54,6 +55,8 @@ function App({ socket }: Props) {
   const [revealedDice, setRevealedDice] = useState<DiceResult | null>(null);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [inviteQr, setInviteQr] = useState("");
+  const [showQr, setShowQr] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [showRules, setShowRules] = useState(false);
   const [diceOverlay, setDiceOverlay] = useState<DiceOverlayState | null>(null);
@@ -62,6 +65,7 @@ function App({ socket }: Props) {
   const previousPiecesRef = useRef<Map<string, string>>(new Map());
   const lastLogRef = useRef("");
   const diceRevealTimerRef = useRef<number | null>(null);
+  const inviteUrl = room ? `${window.location.origin}${window.location.pathname}?room=${room.id}` : "";
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 250);
@@ -111,6 +115,19 @@ function App({ socket }: Props) {
         detail: resultText
       });
     });
+    socket.on("roomDisbanded", ({ reason }: { reason: string }) => {
+      setRoom(null);
+      setRoomId("");
+      setPlayerId("");
+      setPrivateDice(null);
+      setRevealedDice(null);
+      setDiceOverlay(null);
+      setActionBanner(null);
+      setShowQr(false);
+      window.history.replaceState({}, "", window.location.pathname);
+      setError(reason);
+      window.setTimeout(() => setError(""), 3600);
+    });
     socket.on("connect_error", () => setError("サーバーに接続できません"));
 
     return () => {
@@ -118,12 +135,35 @@ function App({ socket }: Props) {
       socket.off("privateDiceResult");
       socket.off("diceRevealed");
       socket.off("gameFinished");
+      socket.off("roomDisbanded");
       socket.off("connect_error");
       if (diceRevealTimerRef.current) {
         window.clearTimeout(diceRevealTimerRef.current);
       }
     };
   }, [socket]);
+
+  useEffect(() => {
+    if (!inviteUrl) {
+      setInviteQr("");
+      return;
+    }
+    let active = true;
+    QRCode.toDataURL(inviteUrl, {
+      errorCorrectionLevel: "M",
+      margin: 1,
+      scale: 8,
+      color: {
+        dark: "#12364f",
+        light: "#ffffff"
+      }
+    }).then((url) => {
+      if (active) setInviteQr(url);
+    });
+    return () => {
+      active = false;
+    };
+  }, [inviteUrl]);
 
   useEffect(() => {
     if (!room || room.status === "finished") return;
@@ -201,7 +241,6 @@ function App({ socket }: Props) {
     () => room?.players.find((player) => player.id === room.currentChallengePlayerId) ?? null,
     [room]
   );
-  const inviteUrl = room ? `${window.location.origin}${window.location.pathname}?room=${room.id}` : "";
   const isMyTurn = Boolean(room && playerId && room.currentTurnPlayerId === playerId);
   const myActivePiece = me?.pieces.find((piece) => piece.status === "active") ?? null;
   const myGoalPieces = me?.pieces.filter((piece) => piece.status === "goal") ?? [];
@@ -265,9 +304,27 @@ function App({ socket }: Props) {
     window.setTimeout(() => setCopied(false), 1300);
   };
 
+  const shareInvite = async () => {
+    if (!inviteUrl) return;
+    if (navigator.share) {
+      await navigator.share({
+        title: "Lie Bridge Online",
+        text: `ROOM ${room?.id ?? ""} で遊ぼう`,
+        url: inviteUrl
+      });
+      return;
+    }
+    await copyInvite();
+  };
+
   const action = (event: string, payload: Record<string, unknown> = {}) => {
     if (!roomId) return;
     emitWithAck(event, { roomId, ...payload });
+  };
+
+  const disbandRoom = () => {
+    if (!roomId || !window.confirm("ゲームを中止してルームを解散しますか？参加者全員がトップ画面に戻ります。")) return;
+    emitWithAck("disbandRoom", { roomId });
   };
 
   const clearEndOverlays = () => {
@@ -374,7 +431,11 @@ function App({ socket }: Props) {
           inviteUrl={inviteUrl}
           copied={copied}
           copyInvite={copyInvite}
+          shareInvite={shareInvite}
+          setShowQr={setShowQr}
+          inviteQr={inviteQr}
           startGame={() => action("startGame")}
+          disbandRoom={disbandRoom}
           leaveToTitle={leaveToTitle}
           error={error}
         />
@@ -408,6 +469,7 @@ function App({ socket }: Props) {
                 clearEndOverlays();
                 action("backToLobby");
               }}
+              disbandRoom={disbandRoom}
               isHost={Boolean(me?.isHost)}
             />
           </section>
@@ -423,6 +485,7 @@ function App({ socket }: Props) {
       {diceOverlay && <DiceOverlay state={diceOverlay} onDismiss={() => setDiceOverlay(null)} />}
       {actionBanner && <ActionBanner banner={actionBanner} />}
       {showRules && <RulesModal onClose={() => setShowRules(false)} />}
+      {showQr && <QrModal inviteUrl={inviteUrl} inviteQr={inviteQr} copyInvite={copyInvite} shareInvite={shareInvite} onClose={() => setShowQr(false)} />}
       {error && <div className="toast">{error}</div>}
     </main>
   );
@@ -434,7 +497,11 @@ function Lobby({
   inviteUrl,
   copied,
   copyInvite,
+  shareInvite,
+  setShowQr,
+  inviteQr,
   startGame,
+  disbandRoom,
   leaveToTitle,
   error
 }: {
@@ -443,22 +510,37 @@ function Lobby({
   inviteUrl: string;
   copied: boolean;
   copyInvite: () => void;
+  shareInvite: () => void;
+  setShowQr: (show: boolean) => void;
+  inviteQr: string;
   startGame: () => void;
+  disbandRoom: () => void;
   leaveToTitle: () => void;
   error: string;
 }) {
   return (
     <section className="lobby-panel">
       <div className="invite-box">
-        <span>招待URL</span>
-        <code>{inviteUrl}</code>
-        <button onClick={copyInvite}>{copied ? "コピー済み" : "コピー"}</button>
+        <div className="invite-copy">
+          <span>招待URL</span>
+          <code>{inviteUrl}</code>
+        </div>
+        <div className="invite-actions">
+          <button onClick={copyInvite}>{copied ? "コピー済み" : "コピー"}</button>
+          <button onClick={shareInvite}>共有</button>
+          <button className="primary" disabled={!inviteQr} onClick={() => setShowQr(true)}>
+            QR表示
+          </button>
+        </div>
       </div>
 
       <PlayerList room={room} playerId={me?.id ?? ""} />
 
       <div className="lobby-actions">
         <button onClick={leaveToTitle}>最初の画面に戻る</button>
+        <button className="danger soft-danger" disabled={!me?.isHost} onClick={disbandRoom}>
+          ルーム解散
+        </button>
         <button className="primary" disabled={!me?.isHost || room.players.length < 2} onClick={startGame}>
           ゲーム開始
         </button>
@@ -627,6 +709,7 @@ function Controls({
   skipChallenge,
   rematch,
   backToLobby,
+  disbandRoom,
   isHost
 }: {
   room: PublicRoomState;
@@ -640,6 +723,7 @@ function Controls({
   skipChallenge: () => void;
   rematch: () => void;
   backToLobby: () => void;
+  disbandRoom: () => void;
   isHost: boolean;
 }) {
   if (room.status === "finished") {
@@ -651,6 +735,9 @@ function Controls({
         </button>
         <button disabled={!isHost} onClick={backToLobby}>
           ロビーに戻る
+        </button>
+        <button className="danger soft-danger" disabled={!isHost} onClick={disbandRoom}>
+          解散
         </button>
       </section>
     );
@@ -680,6 +767,11 @@ function Controls({
           スキップ
         </button>
       </div>
+      {isHost && (
+        <button className="danger soft-danger disband-button" onClick={disbandRoom}>
+          中止して解散
+        </button>
+      )}
     </section>
   );
 }
@@ -836,6 +928,44 @@ function ActionBanner({ banner }: { banner: ActionBannerState }) {
   return (
     <div className={`action-banner ${banner.kind}`} key={banner.key}>
       {banner.text}
+    </div>
+  );
+}
+
+function QrModal({
+  inviteUrl,
+  inviteQr,
+  copyInvite,
+  shareInvite,
+  onClose
+}: {
+  inviteUrl: string;
+  inviteQr: string;
+  copyInvite: () => void;
+  shareInvite: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="qr-title">
+      <section className="qr-modal">
+        <div className="modal-head">
+          <h2 id="qr-title">スマホで招待</h2>
+          <button onClick={onClose}>閉じる</button>
+        </div>
+        <div className="qr-content">
+          {inviteQr ? <img src={inviteQr} alt="招待URLのQRコード" /> : <div className="qr-loading">QR生成中</div>}
+          <div className="qr-detail">
+            <strong>このQRを読み取るとルームに参加できます</strong>
+            <code>{inviteUrl}</code>
+            <div className="qr-actions">
+              <button onClick={copyInvite}>URLコピー</button>
+              <button className="primary" onClick={shareInvite}>
+                共有する
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
