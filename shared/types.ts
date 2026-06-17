@@ -9,6 +9,7 @@ export type RoomPhase =
   | "challengeWindow"
   | "resolving"
   | null;
+export type RoundOutcome = "success" | "failure" | "skip";
 
 export type Piece = {
   id: string;
@@ -29,6 +30,16 @@ export type PublicPlayer = {
   pieces: Piece[];
 };
 
+export type RoundResult = {
+  id: string;
+  actorName: string;
+  challengerName?: string;
+  declaredNumber: DeclaredNumber | null;
+  diceResult: DiceResult | null;
+  outcome: RoundOutcome;
+  summary: string;
+};
+
 export type PublicRoomState = {
   id: string;
   status: RoomStatus;
@@ -42,6 +53,7 @@ export type PublicRoomState = {
   bridgeLength: number;
   goalCount: number;
   logs: string[];
+  roundResults: RoundResult[];
   challengeEndsAt: number | null;
   declareEndsAt: number | null;
   revealedDiceResult: DiceResult | null;

@@ -10,6 +10,7 @@ import type {
   PlayerColor,
   PublicPlayer,
   PublicRoomState,
+  RoundResult,
   RoomPhase,
   RoomStatus,
   ServerAck
@@ -34,6 +35,7 @@ type Room = {
   bridgeLength: number;
   goalCount: number;
   logs: string[];
+  roundResults: RoundResult[];
   challengeEndsAt: number | null;
   declareEndsAt: number | null;
   revealedDiceResult: DiceResult | null;
@@ -104,6 +106,7 @@ const publicRoom = (room: Room): PublicRoomState => ({
   bridgeLength: room.bridgeLength,
   goalCount: room.goalCount,
   logs: room.logs.slice(-80),
+  roundResults: room.roundResults.slice(-8),
   challengeEndsAt: room.challengeEndsAt,
   declareEndsAt: room.declareEndsAt,
   revealedDiceResult: room.revealedDiceResult,
@@ -123,6 +126,16 @@ const addLog = (room: Room, message: string) => {
     room.logs = room.logs.slice(-100);
   }
   io.to(room.id).emit("turnMessage", { message });
+};
+
+const addRoundResult = (room: Room, result: Omit<RoundResult, "id">) => {
+  room.roundResults.push({
+    id: `${Date.now()}-${room.roundResults.length}`,
+    ...result
+  });
+  if (room.roundResults.length > 12) {
+    room.roundResults = room.roundResults.slice(-12);
+  }
 };
 
 const clearTimers = (room: Room) => {
@@ -310,12 +323,28 @@ const resolveChallenge = (room: Room) => {
     room.resolutionText = `出目は ${dice}。宣言は本当でした`;
     room.resolutionKind = "truth";
     addLog(room, `出目は ${dice}。宣言は本当でした`);
+    addRoundResult(room, {
+      actorName: actor.name,
+      challengerName: challenger.name,
+      declaredNumber: declared,
+      diceResult: dice,
+      outcome: "failure",
+      summary: `${challenger.name} の指摘失敗。${actor.name} の宣言は本当でした`
+    });
     loseChallengeStake(room, challenger);
     finalizeGoalIfNeeded(room, actor);
   } else {
     room.resolutionText = `出目は ${dice}。宣言はウソでした`;
     room.resolutionKind = "lie";
     addLog(room, `出目は ${dice}。宣言はウソでした`);
+    addRoundResult(room, {
+      actorName: actor.name,
+      challengerName: challenger.name,
+      declaredNumber: declared,
+      diceResult: dice,
+      outcome: "success",
+      summary: `${challenger.name} が見破りました。${actor.name} の宣言はウソでした`
+    });
     fallActivePiece(room, actor);
     const challengerPiece = activePiece(challenger);
     if (challengerPiece) {
@@ -343,6 +372,13 @@ const resolveNoChallenge = (room: Room) => {
   room.resolutionText = "全員がスキップしました。移動が確定します";
   room.resolutionKind = "skip";
   addLog(room, room.resolutionText);
+  addRoundResult(room, {
+    actorName: actor.name,
+    declaredNumber: room.currentDeclaredNumber,
+    diceResult: null,
+    outcome: "skip",
+    summary: `${actor.name} の宣言は指摘なしで確定しました`
+  });
   finalizeGoalIfNeeded(room, actor);
 
   if (!maybeFinishGame(room)) {
@@ -445,6 +481,7 @@ const resetRoomForGame = (room: Room) => {
   room.resultText = null;
   room.winnerId = null;
   room.logs = [];
+  room.roundResults = [];
   room.players.forEach((player, index) => {
     player.order = index;
     player.isEliminated = false;
@@ -490,6 +527,7 @@ const makeRoom = (playerName: string, socketId: string): { room: Room; player: P
     bridgeLength: 10,
     goalCount: 0,
     logs: [`${player.name} がルームを作りました`],
+    roundResults: [],
     challengeEndsAt: null,
     declareEndsAt: null,
     revealedDiceResult: null,
@@ -717,6 +755,7 @@ io.on("connection", (socket) => {
     room.resultText = null;
     room.winnerId = null;
     room.logs = ["ロビーに戻りました"];
+    room.roundResults = [];
     ack?.({ ok: true });
     emitRoom(room);
   });

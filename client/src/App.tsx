@@ -205,6 +205,8 @@ function App({ socket }: Props) {
   const isMyTurn = Boolean(room && playerId && room.currentTurnPlayerId === playerId);
   const myActivePiece = me?.pieces.find((piece) => piece.status === "active") ?? null;
   const myGoalPieces = me?.pieces.filter((piece) => piece.status === "goal") ?? [];
+  const isGoalStakeChallenge = Boolean(!myActivePiece && myGoalPieces.length > 0);
+  const challengeStakeLabel = isGoalStakeChallenge ? "ゴール済みコマを賭けてウソだ！" : "ウソだ！";
   const canChallenge = Boolean(
     room?.phase === "challengeWindow" &&
       room.currentChallengePlayerId === playerId &&
@@ -305,7 +307,7 @@ function App({ socket }: Props) {
       <main className="shell start-shell">
         <section className="start-hero">
           <div className="sky-mark">Lie Bridge Online</div>
-          <h1>雲の一本橋で、ほんの少しだけ大胆に。</h1>
+          <h1>時に慎重に、時に大胆に。</h1>
           <p>特殊ダイスの出目を隠して宣言し、ウソを見抜きながら3つのコマをゴールへ運ぶ対戦ブラフゲーム。</p>
           <button className="ghost" onClick={() => setShowRules(true)}>
             ルールを見る
@@ -318,7 +320,7 @@ function App({ socket }: Props) {
             <input
               value={playerName}
               maxLength={16}
-              placeholder="例：あおい"
+              placeholder="例：プレイヤー1"
               onChange={(event) => setPlayerName(event.target.value)}
             />
           </label>
@@ -393,6 +395,7 @@ function App({ socket }: Props) {
               isMyTurn={isMyTurn}
               canChallenge={canChallenge}
               canSkipChallenge={canSkipChallenge}
+              challengeStakeLabel={challengeStakeLabel}
               rollDice={rollDiceWithAnimation}
               declareNumber={(declaredNumber) => action("declareNumber", { declaredNumber })}
               challenge={() => action("challenge")}
@@ -411,6 +414,7 @@ function App({ socket }: Props) {
 
           <aside className="side-panel">
             <PlayerList room={room} playerId={playerId} />
+            <RoundResults room={room} />
             <LogPanel room={room} />
           </aside>
         </div>
@@ -616,6 +620,7 @@ function Controls({
   isMyTurn,
   canChallenge,
   canSkipChallenge,
+  challengeStakeLabel,
   rollDice,
   declareNumber,
   challenge,
@@ -628,6 +633,7 @@ function Controls({
   isMyTurn: boolean;
   canChallenge: boolean;
   canSkipChallenge: boolean;
+  challengeStakeLabel: string;
   rollDice: () => void;
   declareNumber: (declaredNumber: DeclaredNumber) => void;
   challenge: () => void;
@@ -668,7 +674,7 @@ function Controls({
       </div>
       <div className="challenge-actions">
         <button className="danger" disabled={!canChallenge} onClick={challenge}>
-          ウソだ！
+          {challengeStakeLabel}
         </button>
         <button disabled={!canSkipChallenge} onClick={skipChallenge}>
           スキップ
@@ -715,6 +721,33 @@ function PlayerList({ room, playerId }: { room: PublicRoomState; playerId: strin
           </article>
         );
       })}
+    </section>
+  );
+}
+
+function RoundResults({ room }: { room: PublicRoomState }) {
+  const results = [...room.roundResults].reverse();
+
+  return (
+    <section className="round-results">
+      <h2>ラウンド結果</h2>
+      {results.length === 0 ? (
+        <p className="empty-results">まだ判定はありません</p>
+      ) : (
+        <div className="result-list">
+          {results.map((result) => (
+            <article className={`result-card ${result.outcome}`} key={result.id}>
+              <span className="result-badge">
+                {result.outcome === "success" ? "指摘成功" : result.outcome === "failure" ? "指摘失敗" : "確定"}
+              </span>
+              <strong>{result.summary}</strong>
+              <p>
+                宣言 {result.declaredNumber ?? "-"} / 出目 {result.diceResult ?? "非公開"}
+              </p>
+            </article>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
