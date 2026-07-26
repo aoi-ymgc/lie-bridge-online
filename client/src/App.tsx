@@ -505,6 +505,7 @@ function App({ socket }: Props) {
               privateDice={privateDice}
               revealedDice={revealedDice}
               isMyTurn={isMyTurn}
+              playerId={playerId}
               currentTurnPlayer={currentTurnPlayer}
               currentChallengePlayer={currentChallengePlayer}
             />
@@ -516,6 +517,7 @@ function App({ socket }: Props) {
               canChallenge={canChallenge}
               canSkipChallenge={canSkipChallenge}
               challengeStakeLabel={challengeStakeLabel}
+              controlHint={controlCue(room, playerId, currentTurnPlayer, currentChallengePlayer)}
               rollDice={rollDiceWithAnimation}
               declareNumber={(declaredNumber) => action("declareNumber", { declaredNumber })}
               challenge={() => action("challenge")}
@@ -663,6 +665,7 @@ function StatusStrip({
   privateDice,
   revealedDice,
   isMyTurn,
+  playerId,
   currentTurnPlayer,
   currentChallengePlayer
 }: {
@@ -670,10 +673,11 @@ function StatusStrip({
   privateDice: DiceResult | null;
   revealedDice: DiceResult | null;
   isMyTurn: boolean;
+  playerId: string;
   currentTurnPlayer: PublicPlayer | null;
   currentChallengePlayer: PublicPlayer | null;
 }) {
-  const lead = playCue(room, isMyTurn, currentTurnPlayer, currentChallengePlayer);
+  const lead = playCue(room, isMyTurn, playerId, currentTurnPlayer, currentChallengePlayer);
 
   return (
     <section className="status-strip">
@@ -717,7 +721,7 @@ function OrderRollPanel({ room }: { room: PublicRoomState }) {
     <section className="order-roll-panel" aria-label="順番決めダイス">
       <div>
         <span className="label">順番決めダイス</span>
-        <strong>出目が大きい人からスタート</strong>
+        <strong>出目が大きい人からスタート。同点は参加が早い人を優先</strong>
       </div>
       <div className="order-roll-list">
         {orderedPlayers.map((player, index) => (
@@ -829,6 +833,7 @@ function Controls({
   canChallenge,
   canSkipChallenge,
   challengeStakeLabel,
+  controlHint,
   rollDice,
   declareNumber,
   challenge,
@@ -843,6 +848,7 @@ function Controls({
   canChallenge: boolean;
   canSkipChallenge: boolean;
   challengeStakeLabel: string;
+  controlHint: string;
   rollDice: () => void;
   declareNumber: (declaredNumber: DeclaredNumber) => void;
   challenge: () => void;
@@ -871,6 +877,7 @@ function Controls({
 
   return (
     <section className="controls">
+      <p className="control-hint">{controlHint}</p>
       <button className="primary" disabled={!isMyTurn || room.phase !== "rolling"} onClick={rollDice}>
         ダイスを振る
       </button>
@@ -1179,6 +1186,7 @@ function classifyLogAction(log: string): ActionBannerState["kind"] | null {
 function playCue(
   room: PublicRoomState,
   isMyTurn: boolean,
+  playerId: string,
   currentTurnPlayer: PublicPlayer | null,
   currentChallengePlayer: PublicPlayer | null
 ) {
@@ -1186,11 +1194,40 @@ function playCue(
   if (room.phase === "rolling") return isMyTurn ? "あなたの番です。ダイスを振ってください" : `${currentTurnPlayer?.name ?? "誰か"} がダイスを振る番です`;
   if (room.phase === "declaring") return isMyTurn ? "出目を見て、1〜4を宣言してください" : `${currentTurnPlayer?.name ?? "誰か"} が数字を宣言します`;
   if (room.phase === "challengeWindow") {
+    if (currentChallengePlayer?.id === playerId) {
+      return "あなたが「ウソだ！」かスキップを選ぶ番です";
+    }
     return currentChallengePlayer
       ? `${currentChallengePlayer.name} が「ウソだ！」かスキップを選びます`
       : "指摘する人がいなければ移動が確定します";
   }
   if (room.phase === "resolving") return "答え合わせ中です";
+  return "ゲーム開始を待っています";
+}
+
+function controlCue(
+  room: PublicRoomState,
+  playerId: string,
+  currentTurnPlayer: PublicPlayer | null,
+  currentChallengePlayer: PublicPlayer | null
+) {
+  if (room.status === "finished") return "ホストはもう一度遊ぶかロビーへ戻せます";
+  if (room.phase === "rolling") {
+    return room.currentTurnPlayerId === playerId
+      ? "あなたの操作: ダイスを振る"
+      : `${currentTurnPlayer?.name ?? "手番プレイヤー"} のダイス待ちです`;
+  }
+  if (room.phase === "declaring") {
+    return room.currentTurnPlayerId === playerId
+      ? "あなたの操作: 出目を見て、進む数を宣言"
+      : `${currentTurnPlayer?.name ?? "手番プレイヤー"} の宣言待ちです`;
+  }
+  if (room.phase === "challengeWindow") {
+    return room.currentChallengePlayerId === playerId
+      ? "あなたの操作: 疑うなら「ウソだ！」、見送るなら「スキップ」"
+      : `${currentChallengePlayer?.name ?? "次の人"} の判断待ちです`;
+  }
+  if (room.phase === "resolving") return "判定中です。結果を確認してください";
   return "ゲーム開始を待っています";
 }
 

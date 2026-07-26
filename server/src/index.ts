@@ -181,6 +181,14 @@ const latestGoalPiece = (player: Player) =>
   goalPieces(player).sort((a, b) => (b.goalOrder ?? 0) - (a.goalOrder ?? 0))[0];
 const canChallengeWithStake = (player: Player) => Boolean(activePiece(player) || latestGoalPiece(player));
 
+const moveActivePiece = (room: Room, player: Player, steps: DeclaredNumber) => {
+  const piece = activePiece(player);
+  if (!piece) return;
+  piece.position += steps;
+  addLog(room, `${player.name} のコマが${steps}マス進みました`);
+  finalizeGoalIfNeeded(room, player);
+};
+
 const rollStartOrder = (room: Room) => {
   const rolls = room.players.map((player, joinIndex) => ({
     player,
@@ -362,10 +370,10 @@ const resolveChallenge = (room: Room) => {
       declaredNumber: declared,
       diceResult: dice,
       outcome: "failure",
-      summary: `${challenger.name} の指摘失敗。${actor.name} の宣言は本当でした`
+      summary: `${challenger.name} の指摘失敗。${actor.name} は${declared}マス進みます`
     });
     loseChallengeStake(room, challenger);
-    finalizeGoalIfNeeded(room, actor);
+    moveActivePiece(room, actor, declared);
   } else {
     room.resolutionText = `出目は ${dice}。宣言はウソでした`;
     room.resolutionKind = "lie";
@@ -381,9 +389,7 @@ const resolveChallenge = (room: Room) => {
     fallActivePiece(room, actor);
     const challengerPiece = activePiece(challenger);
     if (challengerPiece) {
-      challengerPiece.position += declared;
-      addLog(room, `${challenger.name} のコマが${declared}マス進みました`);
-      finalizeGoalIfNeeded(room, challenger);
+      moveActivePiece(room, challenger, declared);
     } else {
       addLog(room, `${challenger.name} はゴール済みコマを守りました`);
     }
@@ -405,14 +411,16 @@ const resolveNoChallenge = (room: Room) => {
   room.resolutionText = "全員がスキップしました。移動が確定します";
   room.resolutionKind = "skip";
   addLog(room, room.resolutionText);
+  if (room.currentDeclaredNumber) {
+    moveActivePiece(room, actor, room.currentDeclaredNumber);
+  }
   addRoundResult(room, {
     actorName: actor.name,
     declaredNumber: room.currentDeclaredNumber,
     diceResult: null,
     outcome: "skip",
-    summary: `${actor.name} の宣言は指摘なしで確定しました`
+    summary: `${actor.name} の宣言は指摘なしで確定。${room.currentDeclaredNumber ?? "-"}マス進みます`
   });
-  finalizeGoalIfNeeded(room, actor);
 
   if (!maybeFinishGame(room)) {
     emitRoom(room);
@@ -490,7 +498,6 @@ const declareNumber = (room: Room, declaredNumber: DeclaredNumber, isTimeout = f
   room.declareTimer = null;
   room.declareEndsAt = null;
   room.currentDeclaredNumber = declaredNumber;
-  piece.position += declaredNumber;
   room.phase = "challengeWindow";
   addLog(room, `${actor.name} は「${declaredNumber}」と宣言しました${isTimeout ? "（時間切れの自動宣言）" : ""}`);
   startChallengeSequence(room, actor);
