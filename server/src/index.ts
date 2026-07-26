@@ -80,6 +80,7 @@ app.get("*", (_req, res) => {
 const rooms = new Map<string, Room>();
 const colors: PlayerColor[] = ["red", "blue", "green", "yellow"];
 const diceFaces: DiceResult[] = [1, 2, 3, 4, "X", "X"];
+const startOrderDice = [1, 2, 3, 4, 5, 6];
 
 const makeId = (length = 6) =>
   Array.from({ length }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random() * 32)]).join("");
@@ -179,6 +180,23 @@ const scoreOf = (player: Player) => goalPieces(player).reduce((sum, piece) => su
 const latestGoalPiece = (player: Player) =>
   goalPieces(player).sort((a, b) => (b.goalOrder ?? 0) - (a.goalOrder ?? 0))[0];
 const canChallengeWithStake = (player: Player) => Boolean(activePiece(player) || latestGoalPiece(player));
+
+const rollStartOrder = (room: Room) => {
+  const rolls = room.players.map((player, joinIndex) => ({
+    player,
+    joinIndex,
+    roll: startOrderDice[Math.floor(Math.random() * startOrderDice.length)]
+  }));
+
+  rolls.sort((a, b) => b.roll - a.roll || a.joinIndex - b.joinIndex);
+  room.players = rolls.map(({ player, roll }, index) => {
+    player.order = index;
+    player.startRoll = roll;
+    return player;
+  });
+
+  return rolls.map(({ player, roll }) => `${player.name}:${roll}`).join(" / ");
+};
 
 const ensureActivePiece = (player: Player) => {
   if (activePiece(player) || player.isEliminated) return;
@@ -497,15 +515,17 @@ const resetRoomForGame = (room: Room) => {
   room.winnerId = null;
   room.logs = [];
   room.roundResults = [];
-  room.players.forEach((player, index) => {
-    player.order = index;
+  room.players.forEach((player) => {
+    player.startRoll = null;
     player.isEliminated = false;
     player.pieces = makePieces(player.id);
     ensureActivePiece(player);
   });
+  const orderLog = rollStartOrder(room);
   const starters = room.players.filter((player) => activePiece(player));
-  const first = starters[Math.floor(Math.random() * starters.length)];
+  const first = starters[0];
   room.currentTurnPlayerId = first?.id ?? null;
+  addLog(room, `順番決めダイス：${orderLog}`);
   addLog(room, "ゲームを開始しました");
   if (first) addLog(room, `${first.name} の手番です`);
 };
@@ -520,6 +540,7 @@ const makeRoom = (playerName: string, socketId: string): { room: Room; player: P
     name: safeName(playerName),
     color: colors[0],
     order: 0,
+    startRoll: null,
     isHost: true,
     isConnected: true,
     isEliminated: false,
@@ -589,6 +610,7 @@ io.on("connection", (socket) => {
       name: safeName(payload.playerName),
       color: colors[room.players.length],
       order: room.players.length,
+      startRoll: null,
       isHost: false,
       isConnected: true,
       isEliminated: false,
@@ -735,6 +757,7 @@ io.on("connection", (socket) => {
     room.players = room.players.filter((item) => item.isConnected).slice(0, 4);
     room.players.forEach((item, index) => {
       item.order = index;
+      item.startRoll = null;
       item.color = colors[index];
       item.isHost = index === 0;
     });
@@ -771,6 +794,11 @@ io.on("connection", (socket) => {
     room.winnerId = null;
     room.logs = ["ロビーに戻りました"];
     room.roundResults = [];
+    room.players.forEach((item, index) => {
+      item.order = index;
+      item.startRoll = null;
+      item.color = colors[index];
+    });
     ack?.({ ok: true });
     emitRoom(room);
   });

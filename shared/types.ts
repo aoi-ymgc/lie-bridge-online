@@ -24,6 +24,7 @@ export type PublicPlayer = {
   name: string;
   color: PlayerColor;
   order: number;
+  startRoll: number | null;
   isHost: boolean;
   isConnected: boolean;
   isEliminated: boolean;
